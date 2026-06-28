@@ -1,0 +1,37 @@
+Consistent Hashing
+
+Problem it solves:
+In a distributed system with N servers, naive hashing (key % N) breaks when
+servers are added or removed — almost all keys need remapping.
+Consistent hashing ensures only K/N keys are remapped when a server changes
+(K = total keys, N = servers).
+
+How it works:
+1. Place servers on a circular ring using hash(server_id)
+2. For each key: hash(key) → find the next server clockwise on the ring
+3. Adding a server: only keys between new server and its predecessor move
+4. Removing a server: only keys that mapped to it move to next server
+
+Virtual Nodes (vnodes):
+Each physical server gets multiple positions on the ring (e.g., 150 virtual nodes).
+Benefits:
+- More even load distribution
+- When a server fails, its load spreads across multiple servers (not just one)
+- Accounts for servers of different capacities (powerful server = more vnodes)
+
+Real-world usage:
+- Amazon DynamoDB: partitioning data across nodes
+- Apache Cassandra: distributing data across cluster
+- Discord: distributing chat messages
+- CDNs: routing requests to cache servers
+- Redis Cluster: slot assignment
+
+When to use:
+Use consistent hashing when you have a distributed cache or storage layer
+that needs to scale horizontally with minimal data movement on topology changes.
+
+Trade-offs:
+Pro: Minimal remapping when cluster changes
+Pro: Even distribution with virtual nodes
+Con: More complex than simple modulo hashing
+Con: Hot spots possible without virtual nodes

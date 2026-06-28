@@ -1,0 +1,43 @@
+YouTube System Design
+
+Overview:
+YouTube serves 2 billion users, 500 hours of video uploaded every minute,
+and 1 billion hours watched daily. Core challenge is video storage,
+transcoding at scale, and low-latency global delivery.
+
+Core Components:
+- Upload Service: Receives raw video from users, validates, stores to blob storage
+- Transcoding Service: Converts video to multiple formats (240p to 4K) and codecs
+- Blob Storage: Stores raw and transcoded video files (Google Cloud Storage scale)
+- CDN: Delivers video from edge servers closest to user — critical for latency
+- Metadata DB: Stores video info, titles, descriptions, view counts
+- Recommendation Engine: ML model suggests next videos based on history
+- Search Service: Elasticsearch index over video metadata
+- API Gateway: Single entry point, handles auth and rate limiting
+
+Database Decisions:
+Metadata (MySQL sharded with Vitess): video info, user profiles, comments
+View counts (Cassandra): High write throughput, eventual consistency acceptable
+Watch history (Bigtable): Time-series data, massive scale
+Search (Elasticsearch): Full-text search, faceted filtering
+
+Video Pipeline:
+Upload → Kafka queue → Transcoding workers → Multiple resolutions stored in GCS
+→ CDN distribution → Available for playback
+Kafka decouples upload from transcoding — upload returns fast, transcoding is async.
+
+CDN Strategy:
+Videos cached at 100+ edge locations globally.
+Popular videos pre-pushed to edge (push CDN).
+Less popular videos fetched on demand (pull CDN).
+Adaptive bitrate streaming (ABR) — client switches quality based on bandwidth.
+
+Scalability:
+1M users: Single region, MySQL with replicas, basic CDN
+10M users: Multi-region, sharded databases, geo-distributed CDN
+100M users: Custom CDN, Vitess for MySQL sharding, dedicated transcoding clusters
+
+Trade-offs:
+Eventual consistency for view counts — number might lag by seconds.
+High storage cost accepted for reliability and multiple quality levels.
+Transcoding latency (minutes) accepted for upload to viewing availability.

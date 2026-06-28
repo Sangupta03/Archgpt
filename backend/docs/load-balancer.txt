@@ -1,0 +1,55 @@
+Load Balancer System Design
+
+What it is:
+A load balancer distributes incoming network traffic across multiple servers.
+Prevents any single server from becoming a bottleneck.
+Essential for high availability and horizontal scaling.
+
+Types of Load Balancers:
+
+1. Layer 4 (Transport Layer):
+Routes based on IP and TCP/UDP port. Fast, no content inspection.
+Cannot route based on URL path or headers.
+Example: AWS Network Load Balancer.
+
+2. Layer 7 (Application Layer):
+Routes based on HTTP content — URL, headers, cookies.
+Can do path-based routing (/api → API servers, /static → CDN).
+Example: AWS Application Load Balancer, Nginx.
+
+Load Balancing Algorithms:
+
+Round Robin: Requests distributed evenly in order.
+Simple, works well when servers have equal capacity.
+
+Weighted Round Robin: Servers get requests proportional to weight.
+Used when servers have different capacities.
+
+Least Connections: New request goes to server with fewest active connections.
+Better for long-lived connections (WebSockets, streaming).
+
+IP Hash: Client IP hashed to always hit same server.
+Useful for session stickiness (user always hits same server).
+Problem: uneven distribution if many users share an IP (NAT).
+
+Consistent Hashing: Used for distributed cache and storage routing.
+Minimizes remapping when servers are added or removed.
+
+Health Checks:
+Load balancer pings each server every few seconds.
+If server fails health check, removed from rotation automatically.
+When server recovers, added back automatically.
+This is how zero-downtime deployments work.
+
+Session Stickiness (Sticky Sessions):
+Problem: User login session stored on Server A. Request goes to Server B — user logged out.
+Solution 1: Sticky sessions — same user always hits same server (IP hash).
+Solution 2: Externalize sessions to Redis — any server can read any session.
+Solution 2 is better for true stateless servers.
+
+Real-world stack for Swiggy scale:
+DNS → AWS Route53 (global traffic routing)
+→ AWS CloudFront (CDN + DDoS protection)
+→ AWS ALB (Layer 7, path-based routing)
+→ Auto Scaling Groups (EC2 instances)
+→ Services

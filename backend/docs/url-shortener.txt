@@ -1,0 +1,40 @@
+URL Shortener System Design
+
+Overview:
+A URL shortener converts long URLs into short aliases (e.g., bit.ly/xyz). 
+It handles billions of redirects daily with sub-millisecond latency.
+
+Core Components:
+- API Server: Accepts long URL, returns short URL
+- Hash Generator: Creates unique 6-7 character alias using Base62 encoding
+- Database: Stores mapping of short code to long URL
+- Cache (Redis): Stores hot URLs in memory — 80% of traffic hits 20% of URLs
+- Load Balancer: Distributes traffic across API servers
+- Analytics Service: Tracks click counts, geography, device type
+
+Database Choice:
+NoSQL (Cassandra or DynamoDB) is preferred because:
+- Simple key-value lookups (short code → long URL)
+- No complex joins needed
+- Needs horizontal scaling for billions of rows
+- High read throughput required
+
+Hashing Strategy:
+Base62 encoding (a-z, A-Z, 0-9) gives 62^7 = 3.5 trillion unique URLs.
+MD5 hash of URL → take first 7 characters → check collision → store.
+Alternative: Auto-increment ID converted to Base62.
+
+Caching Strategy:
+Cache-aside pattern with Redis. TTL of 24 hours for most URLs.
+Cache hit ratio targets 80%+ to reduce database load.
+LRU eviction policy — keep most recently used URLs in cache.
+
+Scalability:
+1M users: Single API server, MySQL with read replicas, Redis cache
+10M users: Multiple API servers behind load balancer, NoSQL database
+100M users: Global CDN for redirect responses, distributed cache, database sharding by short code
+
+Trade-offs:
+Optimizing for read speed (redirects) over write speed (creation).
+Eventual consistency acceptable — slight delay in analytics okay.
+Short codes are not reversible by design (security).

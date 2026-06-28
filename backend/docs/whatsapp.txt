@@ -1,0 +1,46 @@
+WhatsApp System Design
+
+Overview:
+WhatsApp handles 100 billion messages per day across 2 billion users.
+Core challenges: real-time message delivery, end-to-end encryption,
+presence (online/offline), and media delivery at scale.
+
+Core Components:
+- Connection Service: Maintains persistent WebSocket connections per user
+- Message Service: Stores and routes messages between users
+- Presence Service: Tracks online/offline/last-seen status
+- Push Notification Service: Delivers messages to offline users via APNs/FCM
+- Media Service: Handles image, video, audio upload and delivery
+- Group Service: Manages group membership and fan-out
+
+Protocol:
+WebSocket for persistent bidirectional connection.
+XMPP protocol adapted by WhatsApp for message framing.
+Each user device maintains one persistent TCP connection to the server.
+
+Message Delivery Flow:
+Sender sends message → Server receives → Stores in queue
+→ If recipient online: deliver via WebSocket immediately
+→ If offline: store in database, send push notification
+→ Recipient comes online: fetch pending messages, delete from queue
+
+Database Choice:
+Messages: Erlang Mnesia (in-memory) for active sessions + Cassandra for persistence
+Media: Distributed object storage (similar to S3)
+User data: MySQL for profiles and contacts
+Messages are NOT stored long-term on server after delivery (privacy design).
+
+End-to-End Encryption:
+Signal protocol. Keys stored only on devices.
+Server never has access to message plaintext.
+This is a deliberate trade-off: cannot do server-side spam filtering.
+
+Scalability:
+Erlang/OTP chosen specifically because one Erlang process per connection
+scales to millions of concurrent connections per server.
+WhatsApp ran 2 million connections on a single server using Erlang.
+
+Trade-offs:
+No server-side message storage after delivery → cannot restore lost messages
+E2E encryption → cannot do content moderation
+Presence accuracy traded off for scale — last seen may lag slightly

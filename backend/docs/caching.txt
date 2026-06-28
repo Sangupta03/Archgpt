@@ -1,0 +1,65 @@
+Caching Strategies — System Design
+
+Why cache:
+Database reads are slow (milliseconds). Cache reads are fast (microseconds).
+80% of traffic typically reads 20% of data (Pareto principle).
+Cache that 20% and handle 80% of load without hitting the database.
+
+Cache Types:
+
+1. Application Cache (in-memory, local):
+Stored in the application's own memory. Fastest possible.
+Problem: Not shared across servers. Each server has its own cache.
+Use for: static config, lookup tables that rarely change.
+
+2. Distributed Cache (Redis, Memcached):
+Shared cache server all application servers connect to.
+Slightly slower than local cache but consistent across fleet.
+Redis supports rich data structures: strings, lists, sets, sorted sets, hashes.
+Use for: session data, rate limiting counters, leaderboards, pub/sub.
+
+3. CDN Cache:
+Caches static assets (images, JS, CSS) at edge locations globally.
+Requests served from nearest edge node — dramatically lower latency.
+Use for: static files, video content, public API responses.
+
+Cache Invalidation Strategies (the hard problem):
+
+Write-through: Write to cache AND database simultaneously.
+Pro: Cache always consistent. Con: Write latency increases.
+
+Write-behind (Write-back): Write to cache first, async to database.
+Pro: Low write latency. Con: Data loss risk if cache crashes before DB write.
+
+Cache-aside (Lazy loading): Application checks cache first.
+Miss → read from DB → store in cache → return.
+Most common pattern. Pro: Only caches what's actually read.
+Con: First request after cache miss is slow (cache miss penalty).
+
+Read-through: Cache sits in front of DB. Cache handles DB reads automatically.
+Application only talks to cache.
+
+TTL (Time to Live):
+Every cached item should have an expiry time.
+Without TTL: stale data stays forever (cache poisoning risk).
+Set TTL based on how often data changes:
+- User session: 24 hours
+- Product price: 5 minutes
+- Static config: 1 hour
+
+Cache Eviction Policies (when cache is full):
+LRU (Least Recently Used): Evict item not accessed for longest time. Most common.
+LFU (Least Frequently Used): Evict item accessed fewest times.
+FIFO: Evict oldest item. Simple but often suboptimal.
+
+Cache Stampede (Thundering Herd):
+Problem: Popular cache key expires. 1000 requests all miss → all hit DB simultaneously → DB crashes.
+Solutions:
+1. Mutex lock — only first request fetches from DB, others wait.
+2. Background refresh — refresh cache before TTL expires.
+3. Jitter — add random offset to TTL so keys don't expire simultaneously.
+
+Redis at Scale (Zepto, Swiggy use case):
+Redis Sentinel: High availability — automatic failover if primary fails.
+Redis Cluster: Horizontal scaling — data sharded across multiple Redis nodes.
+Read replicas: Route read-heavy workloads to replicas.

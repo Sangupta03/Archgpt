@@ -1,0 +1,54 @@
+Rate Limiter System Design
+
+What it is:
+A rate limiter controls how many requests a client can make in a given time window.
+Critical for APIs to prevent abuse, ensure fair usage, and protect backend services.
+Used by every major API: Twitter, Stripe, Razorpay, GitHub.
+
+Algorithms:
+
+1. Token Bucket (most common):
+Each user gets a bucket with N tokens. Each request consumes one token.
+Tokens refill at a fixed rate. If bucket empty, request rejected.
+Allows short bursts (use all tokens at once) but limits sustained rate.
+Used by: AWS API Gateway, Stripe.
+
+2. Sliding Window Log:
+Store timestamp of every request in a sorted set (Redis).
+On each request, remove timestamps older than window, count remaining.
+If count >= limit, reject. Accurate but memory-intensive.
+
+3. Fixed Window Counter:
+Simple counter per user per time window (e.g., per minute).
+Reset counter at window boundary. Fast and memory efficient.
+Problem: burst at window boundary (double the rate for a brief moment).
+
+4. Leaky Bucket:
+Requests enter a queue (bucket). Processed at fixed rate.
+Smooths out bursts. Good for output rate limiting.
+
+Implementation with Redis:
+Redis is ideal for rate limiting because:
+- Atomic operations (INCR, EXPIRE) prevent race conditions
+- Sub-millisecond latency
+- Distributed — works across multiple API server instances
+
+Redis token bucket implementation:
+INCR user:123:requests
+EXPIRE user:123:requests 60
+If value > limit: reject request
+
+Where to implement:
+- API Gateway layer (before hitting your services)
+- Middleware in FastAPI/Express
+- Nginx level for simple cases
+
+Distributed Rate Limiting Challenge:
+With multiple servers, each server has its own counter.
+Solution: Centralized Redis store shared across all servers.
+Trade-off: Redis becomes a bottleneck — use Redis Cluster for scale.
+
+Real example — Razorpay API:
+100 requests per minute per API key.
+Exceeded: HTTP 429 Too Many Requests.
+Headers returned: X-RateLimit-Remaining, X-RateLimit-Reset.

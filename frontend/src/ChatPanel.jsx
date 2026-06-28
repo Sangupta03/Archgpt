@@ -1,164 +1,220 @@
 import { useState, useEffect, useRef } from "react"
-import ReactMarkdown from "react-markdown"
 
 // A single chat bubble — reused for every message
 // props.role = "user" or "assistant"
 // props.content = the text
+// Replace your MessageBubble function with this improved version
+
+function formatContent(content) {
+  // Split content into sections — mermaid blocks vs regular text
+  const parts = content.split(/(```mermaid[\s\S]*?```)/g)
+
+  return parts.map((part, i) => {
+    // Skip mermaid blocks entirely — diagram panel shows them
+    if (part.startsWith("```mermaid")) {
+      return (
+        <div key={i} style={{
+          background: "#1a2e1a", border: "1px solid #2a4a2a",
+          borderRadius: "8px", padding: "8px 12px", margin: "8px 0",
+          fontSize: "12px", color: "#4caf50"
+        }}>
+          ✓ Architecture diagram rendered on the right panel →
+        </div>
+      )
+    }
+
+    // Format regular markdown text
+    const lines = part.split("\n")
+    let qNum = 0
+    return (
+      <div key={i}>
+        {lines.map((line, j) => {
+          // ## Heading
+          if (line.startsWith("## ")) {
+            return <div key={j} style={{
+              fontSize: "15px", fontWeight: "600", color: "#fff",
+              margin: "14px 0 6px", paddingBottom: "4px",
+              borderBottom: "1px solid #2a2a2a"
+            }}>{line.replace("## ", "")}</div>
+          }
+          // ### Sub heading
+          if (line.startsWith("### ")) {
+            return <div key={j} style={{
+              fontSize: "13px", fontWeight: "600", color: "#ccc",
+              margin: "10px 0 4px"
+            }}>{line.replace("### ", "")}</div>
+          }
+          // Numbered list  1. 2. 3.
+          if (/^\d+\.\s/.test(line)) {
+            return <div key={j} style={{
+              display: "flex", gap: "8px", margin: "4px 0", fontSize: "13px"
+            }}>
+              <span style={{ color: "#5b4de8", fontWeight: "600", flexShrink: 0 }}>
+                {line.match(/^(\d+)\./)[1]}.
+              </span>
+              <span style={{ color: "#ccc" }} dangerouslySetInnerHTML={{
+                __html: line.replace(/^\d+\.\s/, "").replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
+              }} />
+            </div>
+          }
+          // Bullet point
+          if (line.startsWith("- ") || line.startsWith("• ")) {
+            const text = line.replace(/^[-•]\s/, "")
+            return <div key={j} style={{
+              display: "flex", gap: "8px", margin: "3px 0", fontSize: "13px"
+            }}>
+              <span style={{ color: "#5b4de8", flexShrink: 0, marginTop: "1px" }}>▸</span>
+              <span style={{ color: "#ccc" }} dangerouslySetInnerHTML={{
+                __html: text.replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
+              }} />
+            </div>
+          }
+          // Quiz question line  Q:
+          if (line.startsWith("Q:")) {
+            qNum++
+            return <div key={j} style={{
+              background: "#1e1e2e", border: "1px solid #2e2e4e",
+              borderRadius: "8px", padding: "10px 12px", margin: "10px 0 4px",
+              fontSize: "13px", color: "#c8c8f0", fontWeight: "500"
+            }}>Q{qNum}. {line.replace("Q:", "").trim()}</div>
+          }
+          // Quiz options  A) B) C) D)
+          if (/^[A-D]\)/.test(line)) {
+            return <div key={j} style={{
+              padding: "4px 12px", fontSize: "12px", color: "#888",
+              display: "flex", gap: "8px"
+            }}>
+              <span style={{
+                background: "#2a2a2a", borderRadius: "4px",
+                padding: "1px 7px", color: "#aaa", fontWeight: "500", flexShrink: 0
+              }}>{line[0]}</span>
+              <span>{line.slice(3)}</span>
+            </div>
+          }
+          // Answer line — hidden from quiz display
+          if (line.startsWith("Answer:")) {
+            return null
+          }
+          // Table row  | a | b | c |
+          if (line.startsWith("|") && line.endsWith("|")) {
+            if (line.includes("---")) return null // skip separator rows
+            const cells = line.split("|").filter(c => c.trim())
+            const isHeader = lines[j + 1]?.includes("---")
+            return <div key={j} style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${cells.length}, 1fr)`,
+              gap: "1px", marginBottom: "1px"
+            }}>
+              {cells.map((cell, k) => (
+                <div key={k} style={{
+                  padding: "5px 8px", fontSize: "12px",
+                  background: isHeader ? "#2a2a3e" : "#1a1a1a",
+                  color: isHeader ? "#c8c8f0" : "#aaa",
+                  fontWeight: isHeader ? "600" : "400",
+                  border: "1px solid #2a2a2a"
+                }} dangerouslySetInnerHTML={{
+                  __html: cell.trim().replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
+                }} />
+              ))}
+            </div>
+          }
+          // Bold inline text paragraph
+          if (line.trim() && line.includes("**")) {
+            return <div key={j} style={{ fontSize: "13px", color: "#bbb", margin: "3px 0", lineHeight: "1.6" }}
+              dangerouslySetInnerHTML={{
+                __html: line.replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
+              }} />
+          }
+          // Empty line = spacing
+          if (!line.trim()) return <div key={j} style={{ height: "6px" }} />
+          // Regular paragraph
+          return <div key={j} style={{
+            fontSize: "13px", color: "#bbb", margin: "3px 0", lineHeight: "1.6"
+          }}>{line}</div>
+        })}
+      </div>
+    )
+  })
+}
+
 function MessageBubble({ role, content }) {
   return (
-    <div style={{
-      display: "flex",
-      gap: "10px",
-      alignItems: "flex-start",
-      marginBottom: "16px"
-    }}>
-      {/* Avatar circle */}
+    <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginBottom: "16px" }}>
       <div style={{
-        width: "28px", height: "28px",
-        borderRadius: "6px",
+        width: "28px", height: "28px", borderRadius: "6px",
         background: role === "user" ? "#2a2a3e" : "#1a2e1a",
         color: role === "user" ? "#8b83f5" : "#4caf50",
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: "11px", fontWeight: "600", flexShrink: 0
+        fontSize: "11px", fontWeight: "600", flexShrink: 0, marginTop: "2px"
       }}>
         {role === "user" ? "You" : "AI"}
       </div>
-
-      {/* Message content */}
       <div style={{
         background: role === "user" ? "#1e1e2e" : "#1a1a1a",
         border: `1px solid ${role === "user" ? "#2e2e4e" : "#2a2a2a"}`,
-        borderRadius: "10px",
-        padding: "10px 14px",
-        fontSize: "14px",
-        lineHeight: "1.6",
-        maxWidth: "680px",
-        color: "#ddd"
+        borderRadius: "10px", padding: "12px 14px",
+        maxWidth: "680px", width: "100%"
       }}>
-        {/* ReactMarkdown converts ## headings, **bold** etc to real HTML */}
-        <ReactMarkdown>{content}</ReactMarkdown>
+        {role === "user"
+          ? <div style={{ fontSize: "13px", color: "#c8c8f0" }}>{content}</div>
+          : formatContent(content)
+        }
       </div>
     </div>
   )
 }
 
-// Animated typing dots — shown while waiting for first token
-function TypingIndicator() {
-  return (
-    <div style={{ display: "flex", gap: "4px", padding: "4px 0 16px 38px" }}>
-      {[0, 1, 2].map(i => (
-        <div key={i} style={{
-          width: "6px", height: "6px",
-          background: "#555", borderRadius: "50%",
-          animation: "bounce 1s infinite",
-          animationDelay: `${i * 0.15}s`
-        }} />
-      ))}
-      <style>{`
-        @keyframes bounce {
-          0%, 60%, 100% { transform: translateY(0); }
-          30% { transform: translateY(-5px); }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-// The main ChatPanel component
-// props:
-//   messages — array of {role, content} objects
-//   onNewMessage — function to call when AI response is complete
 export default function ChatPanel({ messages, onNewMessage }) {
-  // isStreaming = true while AI is generating
-  // we disable the send button during this time
-  const [isStreaming, setIsStreaming] = useState(false)
-
-  // input = what the user is currently typing
   const [input, setInput] = useState("")
-
-  // showTyping = show the bouncing dots before first token arrives
-  const [showTyping, setShowTyping] = useState(false)
-
-  // streamingText = the AI message being built token by token
-  // this is a local state — once done it goes into messages via onNewMessage
-  const [streamingText, setStreamingText] = useState("")
-
-  // this ref points to the bottom of the messages list
-  // we use it to auto-scroll down when new messages arrive
+  const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
 
-  // whenever messages or streamingText changes, scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, streamingText])
+  }, [messages])
 
   async function sendMessage() {
     const text = input.trim()
-    if (!text || isStreaming) return
+    if (!text || loading) return
 
-    // add user message to the list immediately
-    const userMessage = { role: "user", content: text }
-    onNewMessage(userMessage, null)  // null = no AI response yet
-
+    const userMsg = { role: "user", content: text }
+    onNewMessage(userMsg, null)
     setInput("")
-    setIsStreaming(true)
-    setShowTyping(true)
-    setStreamingText("")
+    setLoading(true)
 
     try {
-      // POST to our FastAPI backend with full conversation history
-      const response = await fetch("http://localhost:8000/chat", {
+      const allMessages = [...messages, userMsg]
+      const res = await fetch("http://localhost:8000/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, userMessage]
-          // we send the FULL history so Gemini remembers context
-        })
+        body: JSON.stringify({ messages: allMessages }),
       })
 
-      // Get a reader to consume the stream chunk by chunk
-      const reader = response.body.getReader()
+      const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let fullText = ""
 
-      // Keep reading until the stream is done
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
-        // Decode the binary chunk to string
         const chunk = decoder.decode(value)
-
-        // Each SSE message is on its own line starting with "data: "
-        const lines = chunk.split("\n")
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-          const data = line.slice(6)            // remove "data: " prefix
-          if (data === "[DONE]") break          // stream finished signal
-
-          try {
-            const parsed = JSON.parse(data)
-            fullText += parsed.text
-            setShowTyping(false)
-            setStreamingText(fullText)           // update screen with each token
-          } catch(e) { /* ignore partial JSON */ }
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("data: ") && line !== "data: [DONE]") {
+            try {
+              const { text } = JSON.parse(line.slice(6))
+              fullText += text
+              onNewMessage(null, { role: "assistant", content: fullText })
+            } catch {}
+          }
         }
       }
-
-      // Stream is done — move text from local state into messages array
-      setStreamingText("")
-      onNewMessage(null, { role: "assistant", content: fullText })
-
-    } catch(e) {
-      setStreamingText("")
-      onNewMessage(null, { role: "assistant", content: "Something went wrong. Is the backend running?" })
+    } catch (e) {
+      onNewMessage(null, { role: "assistant", content: "Error connecting to backend." })
+    } finally {
+      setLoading(false)
     }
-
-    setIsStreaming(false)
-    setShowTyping(false)
   }
 
-  // Send on Enter key (Shift+Enter = new line)
   function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -166,86 +222,148 @@ export default function ChatPanel({ messages, onNewMessage }) {
     }
   }
 
+  function sendSuggestion(text) {
+    setInput(text)
+    setTimeout(() => {
+      const userMsg = { role: "user", content: text }
+      onNewMessage(userMsg, null)
+      setInput("")
+      setLoading(true)
+      const allMessages = [...messages, userMsg]
+      fetch("http://localhost:8000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: allMessages }),
+      }).then(res => {
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let fullText = ""
+        function read() {
+          reader.read().then(({ done, value }) => {
+            if (done) { setLoading(false); return }
+            const chunk = decoder.decode(value)
+            for (const line of chunk.split("\n")) {
+              if (line.startsWith("data: ") && line !== "data: [DONE]") {
+                try {
+                  const { text } = JSON.parse(line.slice(6))
+                  fullText += text
+                  onNewMessage(null, { role: "assistant", content: fullText })
+                } catch {}
+              }
+            }
+            read()
+          })
+        }
+        read()
+      }).catch(() => {
+        onNewMessage(null, { role: "assistant", content: "Error connecting to backend." })
+        setLoading(false)
+      })
+    }, 0)
+  }
+
+  const suggestions = [
+    { label: "YouTube", prompt: "Design YouTube" },
+    { label: "Swiggy", prompt: "Design Swiggy" },
+    { label: "URL Shortener", prompt: "Design a URL Shortener" },
+    { label: "WhatsApp", prompt: "Design WhatsApp" },
+  ]
+
   return (
-    <div style={{
-      width: "100%", height: "100%",
-      display: "flex", flexDirection: "column",
-      borderRight: "1px solid #222",
-      background: "#111",
-      overflow: "hidden"
-    }}>
-
-      {/* Messages list */}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0f0f0f" }}>
+      {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
-
-        {/* Welcome message — shown when no messages yet */}
-        {messages.length === 0 && !streamingText && (
-          <div style={{ textAlign: "center", padding: "60px 20px", color: "#444" }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: "center", color: "#333", marginTop: "60px" }}>
             <div style={{ fontSize: "32px", marginBottom: "12px" }}>⬡</div>
-            <div style={{ fontSize: "18px", color: "#888", marginBottom: "8px" }}>Ask me to design any system</div>
-            <div style={{ fontSize: "13px" }}>YouTube · WhatsApp · Swiggy · URL shortener</div>
+            <div style={{ fontSize: "14px", color: "#555" }}>Ask me to design any system</div>
+            <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap", marginTop: "20px" }}>
+              {suggestions.map(s => (
+                <button
+                  key={s.label}
+                  onClick={() => sendSuggestion(s.prompt)}
+                  style={{
+                    background: "#1a1a1a", border: "1px solid #2a2a2a",
+                    borderRadius: "20px", padding: "6px 14px",
+                    fontSize: "12px", color: "#888", cursor: "pointer",
+                    transition: "border-color 0.15s, color 0.15s"
+                  }}
+                  onMouseEnter={e => { e.target.style.borderColor = "#5b4de8"; e.target.style.color = "#c8c8f0" }}
+                  onMouseLeave={e => { e.target.style.borderColor = "#2a2a2a"; e.target.style.color = "#888" }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
-
-        {/* Render all completed messages */}
         {messages.map((msg, i) => (
           <MessageBubble key={i} role={msg.role} content={msg.content} />
         ))}
-
-        {/* Typing indicator — before first token */}
-        {showTyping && <TypingIndicator />}
-
-        {/* Streaming message — being built live */}
-        {streamingText && (
-          <MessageBubble role="assistant" content={streamingText} />
+        {loading && (
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "16px" }}>
+            <div style={{
+              width: "28px", height: "28px", borderRadius: "6px", background: "#1a2e1a",
+              color: "#4caf50", display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "11px", fontWeight: "600", flexShrink: 0
+            }}>AI</div>
+            <div style={{ fontSize: "13px", color: "#444" }}>Thinking…</div>
+          </div>
         )}
-
-        {/* Invisible div at the bottom — we scroll to this */}
         <div ref={bottomRef} />
       </div>
 
-      {/* Suggestion chips */}
-      <div style={{ padding: "0 16px 10px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-        {["Design YouTube", "How does Swiggy scale?", "Design WhatsApp", "URL shortener"].map(s => (
-          <button key={s}
-            onClick={() => { setInput(s); }}
+      {/* Input */}
+      <div style={{ padding: "12px 16px", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
+        {/* Quick suggestion chips above input */}
+        {messages.length > 0 && (
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+            {suggestions.map(s => (
+              <button
+                key={s.label}
+                onClick={() => sendSuggestion(s.prompt)}
+                disabled={loading}
+                style={{
+                  background: "#1a1a1a", border: "1px solid #2a2a2a",
+                  borderRadius: "20px", padding: "3px 10px",
+                  fontSize: "11px", color: "#666", cursor: loading ? "not-allowed" : "pointer",
+                  transition: "border-color 0.15s, color 0.15s"
+                }}
+                onMouseEnter={e => { if (!loading) { e.target.style.borderColor = "#5b4de8"; e.target.style.color = "#aaa" } }}
+                onMouseLeave={e => { e.target.style.borderColor = "#2a2a2a"; e.target.style.color = "#666" }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: "8px" }}>
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Design a system, ask a concept, or request a quiz…"
+            rows={2}
             style={{
-              background: "#1a1a1a", border: "1px solid #2a2a2a",
-              borderRadius: "20px", padding: "5px 12px",
-              fontSize: "12px", color: "#888", cursor: "pointer"
+              flex: 1, background: "#1a1a1a", border: "1px solid #2a2a2a",
+              borderRadius: "8px", padding: "10px 12px", color: "#e8e8e8",
+              fontSize: "13px", resize: "none", outline: "none", fontFamily: "inherit"
             }}
-          >{s}</button>
-        ))}
-      </div>
-
-      {/* Input area */}
-      <div style={{
-        padding: "12px 16px", borderTop: "1px solid #222",
-        display: "flex", gap: "8px", alignItems: "flex-end"
-      }}>
-        <textarea
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Design Twitter, explain consistent hashing..."
-          rows={1}
-          style={{
-            flex: 1, background: "#1a1a1a", border: "1px solid #2a2a2a",
-            borderRadius: "10px", padding: "10px 14px", color: "#e8e8e8",
-            fontSize: "14px", fontFamily: "inherit", resize: "none",
-            outline: "none", lineHeight: "1.5"
-          }}
-        />
-        <button
-          onClick={sendMessage}
-          disabled={isStreaming}
-          style={{
-            width: "38px", height: "38px", background: isStreaming ? "#333" : "#5b4de8",
-            border: "none", borderRadius: "8px", cursor: isStreaming ? "not-allowed" : "pointer",
-            color: "white", fontSize: "18px", display: "flex",
-            alignItems: "center", justifyContent: "center"
-          }}
-        >↑</button>
+          />
+          <button
+            onClick={sendMessage}
+            disabled={loading || !input.trim()}
+            style={{
+              background: loading || !input.trim() ? "#1a1a1a" : "#5b4de8",
+              border: "none", borderRadius: "8px", padding: "0 16px",
+              color: loading || !input.trim() ? "#444" : "#fff",
+              fontSize: "13px", cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+              flexShrink: 0, transition: "background 0.15s"
+            }}
+          >
+            {loading ? "…" : "Send"}
+          </button>
+        </div>
       </div>
     </div>
   )

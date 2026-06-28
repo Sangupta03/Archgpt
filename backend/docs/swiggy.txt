@@ -1,0 +1,47 @@
+Swiggy System Design (Food Delivery at Indian Scale)
+
+Overview:
+Swiggy connects 300,000+ restaurants with millions of customers across 500+ Indian cities.
+Core challenges: real-time order tracking, dynamic delivery partner assignment,
+surge pricing, and handling massive peak loads during lunch/dinner.
+
+Core Components:
+- Order Service: Creates and manages order lifecycle (placed → accepted → picked → delivered)
+- Restaurant Service: Menu management, availability, real-time inventory
+- Delivery Partner Service: Assignment, tracking, payout
+- Location Service: Real-time GPS tracking of delivery partners (updates every 5 seconds)
+- Pricing Engine: Dynamic surge pricing based on demand/supply ratio
+- Notification Service: Real-time order updates via WebSocket + push notifications
+- Search & Discovery: Restaurant search, personalized ranking, filters
+- Payment Service: Integration with Razorpay, UPI, cash on delivery
+
+Real-time Location Tracking:
+Delivery partner app sends GPS coordinates every 5 seconds.
+Location stored in Redis (fast writes, TTL-based cleanup).
+WebSocket pushes updates to customer app in real-time.
+At peak: 100,000+ location updates per minute.
+
+Order Assignment (Matching Problem):
+When order placed → find available delivery partners within radius
+→ Calculate ETA using road distance, not straight line
+→ Assign to nearest partner with capacity
+→ If no partner: expand radius, retry every 30 seconds
+
+Database Design:
+Orders: PostgreSQL (ACID compliance, complex queries for analytics)
+Location data: Redis (high-frequency writes, fast reads)
+Restaurant catalog: MongoDB (flexible schema, nested menu structure)
+Search: Elasticsearch (full-text, geo-search, filters)
+Session/cart: Redis
+
+Handling Peak Load (lunch 12-2pm, dinner 7-9pm):
+Auto-scaling API servers based on order rate metrics
+Pre-warming caches with popular restaurant data before peak hours
+Queue-based order processing to handle burst — Kafka absorbs spikes
+Database read replicas handle reporting queries during peak
+
+Indian-Specific Challenges:
+Network reliability: Offline-first mobile app, retry logic for 2G/3G
+UPI integration: Handle payment failures gracefully, auto-retry
+Cash on delivery: 30%+ orders are COD — delivery partner cash management
+Multiple languages: Localization across 10+ Indian languages

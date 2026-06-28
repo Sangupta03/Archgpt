@@ -1,32 +1,29 @@
 # ── Imports ──────────────────────────────────────────────
-from fastapi import FastAPI                          # the framework
-from fastapi.responses import StreamingResponse      # for token-by-token streaming
-from fastapi.middleware.cors import CORSMiddleware   # allows React (port 5173) to talk to FastAPI (port 8000)
-from pydantic import BaseModel                       # validates request body shape
-import google.generativeai as genai                  # Gemini SDK
-from dotenv import load_dotenv                       # reads .env file
-import os, json                                      # built-in Python modules
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+from retriever import retrieve
+import os, json
 
-# ── Load API key from .env ────────────────────────────────
-load_dotenv()                                        # reads .env file into environment
-genai.configure(api_key=os.getenv("GEMINI_API_KEY")) # gives Gemini SDK your key
+# ── Load API key ──────────────────────────────────────────
+load_dotenv()
+gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# ── Create FastAPI app ────────────────────────────────────
+# ── App setup ─────────────────────────────────────────────
 app = FastAPI()
 
-# ── CORS — critical for React + FastAPI to work together ─
-# React runs on localhost:5173, FastAPI on localhost:8000
-# Browsers block cross-origin requests by default — CORS allows it
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # only allow your React app
-    allow_methods=["*"],                      # allow GET, POST, etc.
-    allow_headers=["*"],                      # allow all headers
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ── System Prompt — the personality of your AI ───────────
-# This is sent with EVERY request. It forces Gemini to always
-# respond in a structured format and generate Mermaid diagrams.
+# ── System Prompt ─────────────────────────────────────────
 SYSTEM_PROMPT = """You are an expert system design architect with 15+ years at Google, Meta, Amazon.
 
 When asked to design any system, ALWAYS respond in this exact structure:
@@ -60,59 +57,165 @@ graph TD
 Rules for the diagram:
 - Maximum 12 nodes
 - NO subgraph blocks
-- NO parentheses or special chars inside node labels like brackets
+- NO parentheses inside node labels
 - Only use --> arrows
 - Keep node labels short, under 4 words
 
-Use Indian startup examples when relevant. Keep explanations clear for beginners but deep enough for interviews."""
+Use Indian startup examples when relevant."""
 
-# ── Request shape — Pydantic validates this automatically ─
+# ── Request models ────────────────────────────────────────
 class Message(BaseModel):
-    role: str       # "user" or "assistant"
-    content: str    # the actual text
+    role: str
+    content: str
 
 class ChatRequest(BaseModel):
-    messages: list[Message]   # full conversation history
+    messages: list[Message]
 
-# ── The one endpoint your app has ────────────────────────
+# ── Single /chat endpoint — RAG + Gemini + streaming ──────
 @app.post("/chat")
 async def chat(request: ChatRequest):
 
-    # Convert messages to Gemini's expected format
-    # Gemini uses "user" and "model" (not "assistant")
     history = []
-    for msg in request.messages[:-1]:   # all messages except the last one
-        history.append({
-            "role": "user" if msg.role == "user" else "model",
-            "parts": [msg.content]
-        })
+    for msg in request.messages[:-1]:
+        history.append(
+            types.Content(
+                role="user" if msg.role == "user" else "model",
+                parts=[types.Part(text=msg.content)]
+            )
+        )
 
-    # The latest message is the current user input
     latest = request.messages[-1].content
 
-    # Start a Gemini chat session with full history
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",    # free, fast, capable model
-        system_instruction=SYSTEM_PROMPT   # always inject our personality
-    )
-    chat_session = model.start_chat(history=history)
+    # ── Agent: detect intent, pick the right tool ─────────
+    # Instead of always doing RAG, we detect what the user wants
+    # and build the prompt accordingly
 
-    # ── Streaming generator ───────────────────────────────
-    # Instead of waiting for the full response, we yield each
-    # chunk the moment Gemini generates it — this is the
-    # ChatGPT typing effect
+    lower = latest.lower()
+
+    # Intent 1: Compare two systems
+    is_compare = any(w in lower for w in ["compare", "vs", "versus", "difference between"])
+
+    # Intent 2: Quiz request
+    is_quiz = any(w in lower for w in ["quiz", "test me", "question", "flashcard"])
+
+    # Intent 3: Pure concept question (no diagram needed)
+    is_concept = any(w in lower for w in ["what is", "explain", "why does", "how does", "what are"])
+
+    # Always retrieve relevant docs
+    context = retrieve(latest)
+
+    if is_compare:
+        augmented_prompt = f"""The user wants to COMPARE two systems.
+Provide a structured comparison with:
+1. Side-by-side table of key differences
+2. When to use each
+3. Trade-offs
+4. Generate a diagram for EACH system (two separate mermaid blocks)
+
+Reference material:
+{context}
+
+User question: {latest}"""
+
+    elif is_quiz:
+        augmented_prompt = f"""The user wants to be quizzed.
+Generate 5 multiple choice questions on the topic they mentioned.
+Format each as:
+Q: [question]
+A) option B) option C) option D) option
+Answer: [letter] — [explanation]
+
+Reference material:
+{context}
+
+User question: {latest}"""
+
+    elif is_concept:
+        augmented_prompt = f"""The user wants a conceptual explanation.
+Explain clearly with:
+- Simple analogy first
+- Technical detail second
+- Real-world example (Indian startup preferred)
+- No diagram needed unless it really helps
+
+Reference material:
+{context}
+
+User question: {latest}"""
+
+    else:
+        # Default: full system design with diagram
+        augmented_prompt = f"""Use the following reference material to inform your answer.
+Cite the source when you use information from it.
+
+REFERENCE MATERIAL:
+{context}
+
+USER QUESTION:
+{latest}"""
+
+    chat_session = gemini.chats.create(
+        model="gemini-2.5-flash-lite",
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT
+        ),
+        history=history,
+    )
+
     def stream():
-        response = chat_session.send_message(latest, stream=True)
+        response = chat_session.send_message_stream(augmented_prompt)
         for chunk in response:
             if chunk.text:
-                # SSE format: every message must start with "data: "
-                # and end with double newline \n\n
                 yield f"data: {json.dumps({'text': chunk.text})}\n\n"
-        yield "data: [DONE]\n\n"   # signal to browser that stream is finished
+        yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
-# ── Health check — useful for deployment later ────────────
+# ── Quiz endpoint — generates MCQs from a system topic ───
+class QuizRequest(BaseModel):
+    topic: str        # e.g. "YouTube", "URL shortener"
+    num_questions: int = 5
+
+@app.post("/quiz")
+async def generate_quiz(request: QuizRequest):
+    # Retrieve relevant docs for this topic
+    context = retrieve(request.topic)
+
+    prompt = f"""Generate exactly {request.num_questions} multiple choice questions
+to test understanding of {request.topic} system design.
+
+Use this reference material:
+{context}
+
+Return ONLY valid JSON in this exact format, nothing else:
+{{
+  "questions": [
+    {{
+      "question": "What does a load balancer do?",
+      "options": ["A) Stores data", "B) Distributes traffic", "C) Caches responses", "D) Encrypts requests"],
+      "answer": "B",
+      "explanation": "A load balancer distributes incoming traffic across multiple servers to prevent overload."
+    }}
+  ]
+}}"""
+
+    response = gemini.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt
+    )
+
+    try:
+        import re
+        # Strip markdown code fences if present
+        text = response.text.strip()
+        text = re.sub(r'^```json\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        quiz_data = json.loads(text)
+        return quiz_data
+    except Exception as e:
+        return {"error": "Failed to parse quiz", "raw": response.text}
+
+# ── Health check ──────────────────────────────────────────
 @app.get("/health")
 def health():
     return {"status": "ok"}
