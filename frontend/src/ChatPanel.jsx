@@ -78,18 +78,26 @@ function formatContent(content) {
               fontSize: "13px", color: "#c8c8f0", fontWeight: "500"
             }}>Q{qNum}. {line.replace("Q:", "").trim()}</div>
           }
-          // Quiz options  A) B) C) D)
+          // Quiz options  A) B) C) D) — may all be on one line or separate
           if (/^[A-D]\)/.test(line)) {
-            return <div key={j} style={{
-              padding: "4px 12px", fontSize: "12px", color: "#888",
-              display: "flex", gap: "8px"
-            }}>
-              <span style={{
-                background: "#2a2a2a", borderRadius: "4px",
-                padding: "1px 7px", color: "#aaa", fontWeight: "500", flexShrink: 0
-              }}>{line[0]}</span>
-              <span>{line.slice(3)}</span>
-            </div>
+            // Split "A) foo B) bar C) baz D) qux" into individual options
+            const opts = line.split(/(?=[B-D]\))/).map(s => s.trim()).filter(Boolean)
+            return (
+              <div key={j}>
+                {opts.map((opt, k) => (
+                  <div key={k} style={{
+                    padding: "4px 12px", fontSize: "12px", color: "#888",
+                    display: "flex", gap: "8px"
+                  }}>
+                    <span style={{
+                      background: "#2a2a2a", borderRadius: "4px",
+                      padding: "1px 7px", color: "#aaa", fontWeight: "500", flexShrink: 0
+                    }}>{opt[0]}</span>
+                    <span>{opt.slice(3).trim()}</span>
+                  </div>
+                ))}
+              </div>
+            )
           }
           // Answer line — hidden from quiz display
           if (line.startsWith("Answer:")) {

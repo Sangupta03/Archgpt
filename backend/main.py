@@ -1,6 +1,11 @@
 # ── Imports ──────────────────────────────────────────────
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+
+from fastapi import FastAPI, Depends
+from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
+from auth import get_google_auth_url, exchange_code_for_user, create_jwt, get_current_user_id
+from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session
+
+
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
@@ -9,16 +14,22 @@ from dotenv import load_dotenv
 from retriever import retrieve
 import os, json
 
-# ── Load API key ──────────────────────────────────────────
+# ── Load env ──────────────────────────────────────────────
 load_dotenv()
 gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
 
 # ── App setup ─────────────────────────────────────────────
 app = FastAPI()
 
+# Create DB tables on startup
+create_tables()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[FRONTEND_URL, "http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -214,6 +225,114 @@ Return ONLY valid JSON in this exact format, nothing else:
         return quiz_data
     except Exception as e:
         return {"error": "Failed to parse quiz", "raw": response.text}
+
+
+#to save routes
+class SaveSessionRequest(BaseModel):
+    title: str
+    messages: list
+    diagrams: list = []  # [{label, code}] — multi-diagram support
+
+
+# ── Auth routes ───────────────────────────────────────────
+
+# REDIRECT_URI is set at top of file from env var
+
+@app.get("/auth/login")
+def login():
+    """Step 1: Redirect user to Google login page."""
+    url = get_google_auth_url(REDIRECT_URI)
+    return RedirectResponse(url)
+
+@app.get("/auth/callback")
+async def auth_callback(code: str):
+    """
+    Step 2: Google redirects here with a code.
+    Exchange code → get user info → find/create user → issue JWT.
+    Then redirect to frontend with the JWT.
+    """
+    # Exchange code for Google user info
+    google_user = await exchange_code_for_user(code, REDIRECT_URI)
+
+    google_id = google_user.get("id")
+    email     = google_user.get("email")
+    name      = google_user.get("name")
+    picture   = google_user.get("picture")
+
+    # Find existing user or create new one
+    user = get_user_by_google_id(google_id)
+    if not user:
+        user = create_user(email, name, picture, google_id)
+
+    # Issue JWT
+    token = create_jwt(user["id"], user["email"])
+
+    return RedirectResponse(f"{FRONTEND_URL}/auth/success?token={token}")
+
+@app.get("/auth/me")
+def get_me(user_id: int = Depends(get_current_user_id)):
+    """
+    Returns current user info.
+    Depends(get_current_user_id) automatically validates JWT.
+    If no valid JWT → 401 Unauthorized automatically.
+    """
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "id":      user["id"],
+        "email":   user["email"],
+        "name":    user["name"],
+        "picture": user["picture"]
+    }
+
+# ── Session routes ────────────────────────────────────────
+
+@app.post("/sessions")
+def create_session(
+    req: SaveSessionRequest,
+    user_id: int = Depends(get_current_user_id)  # requires login
+):
+    """Save a chat session to the database."""
+    session_id = save_session(user_id, req.title, req.messages, req.diagrams)
+    return {"session_id": session_id, "message": "Session saved"}
+
+@app.get("/sessions")
+def list_sessions(user_id: int = Depends(get_current_user_id)):
+    """Get all sessions for the logged-in user."""
+    sessions = get_user_sessions(user_id)
+    # Convert datetime to string for JSON serialization
+    for s in sessions:
+        s["created_at"] = str(s["created_at"])
+    return sessions
+
+@app.get("/sessions/{session_id}")
+def load_session(
+    session_id: int,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Load a specific session. Authorization built in — only your sessions."""
+    session = get_session(session_id, user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session["created_at"] = str(session["created_at"])
+    session["updated_at"] = str(session["updated_at"])
+    # Parse diagrams from JSON string if stored as text
+    raw = session.get("diagram", "[]") or "[]"
+    try:
+        session["diagrams"] = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        session["diagrams"] = []
+    return session
+
+@app.delete("/sessions/{session_id}")
+def remove_session(
+    session_id: int,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Delete a session."""
+    delete_session(session_id, user_id)
+    return {"message": "Deleted"}
 
 # ── Health check ──────────────────────────────────────────
 @app.get("/health")
