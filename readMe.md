@@ -308,7 +308,7 @@ MIT License — feel free to use this for your own learning and portfolio.
 
 <div align="center">
 
-Built with ❤️ for placement preparation
+Author-Sanjoli Gupta
 
 ⭐ Star this repo if it helped you!
 
