@@ -5,7 +5,7 @@ import AuthButton from "./AuthButton"
 import Sidebar from "./Sidebar"
 import AuthSuccess from "./AuthSuccess"
 
-const API = "http://localhost:8000"
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
 export default function App() {
   const [messages, setMessages] = useState([])

@@ -24,7 +24,7 @@ export default function AuthButton({ user, onLogin, onLogout }) {
 
   return (
     <button
-      onClick={() => window.location.href = "http://localhost:8000/auth/login"}
+      onClick={() => window.location.href = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/auth/login`}
       style={{
         marginLeft: "auto", background: "#1a1a2e", border: "1px solid #2e2e4e",
         borderRadius: "8px", padding: "6px 14px", fontSize: "13px",
