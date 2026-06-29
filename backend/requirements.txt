@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+google-genai
+chromadb
+python-dotenv
+httpx
+python-jose[cryptography]
+psycopg2-binary
+pydantic
