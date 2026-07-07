@@ -36,7 +36,7 @@ def retrieve_with_sources(query, top_k=3):
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=min(top_k, collection.count()),
-        include=["documents", "metadatas", "distances"]
+        include=["documents", "metadatas"]
     )
 
     if not results["documents"][0]:
@@ -44,15 +44,14 @@ def retrieve_with_sources(query, top_k=3):
 
     context_parts = []
     seen_sources = []
-    for doc, meta, distance in zip(
+    for doc, meta in zip(
         results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0]
+        results["metadatas"][0]
     ):
         name = meta["source"].replace(".txt", "").replace("-", " ").title()
-        relevance = round((1 - distance) * 100)
-        context_parts.append(f"[Source: {name} | Relevance: {relevance}%]\n{doc}")
-        # deduplicate — same file can appear multiple times if multiple chunks match
+        # don't add source label to the chunk — AI mimics it and adds "[Source: X]" everywhere
+        # we track the name separately and show it as UI chips instead
+        context_parts.append(doc)
         if name not in seen_sources:
             seen_sources.append(name)
 

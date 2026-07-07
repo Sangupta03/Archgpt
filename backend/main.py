@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-from retriever import retrieve_with_sources
+from retriever import retrieve, retrieve_with_sources
 import os, json
 
 # ── Load env ──────────────────────────────────────────────
@@ -176,7 +176,7 @@ User question: {latest}"""
     else:
         # Default: full system design with diagram
         augmented_prompt = f"""Use the following reference material to inform your answer.
-Cite the source when you use information from it.
+Do NOT cite sources inline — sources are shown separately in the UI.
 
 REFERENCE MATERIAL:
 {context}
@@ -248,6 +248,51 @@ Return ONLY valid JSON in this exact format, nothing else:
         return quiz_data
     except Exception as e:
         return {"error": "Failed to parse quiz", "raw": response.text}
+
+
+# ── Flashcard endpoint — concept cards with front/back ────
+class FlashcardRequest(BaseModel):
+    topic: str
+    num_cards: int = 8
+
+@app.post("/flashcards")
+async def generate_flashcards(request: FlashcardRequest):
+    context = retrieve(request.topic)
+
+    prompt = f"""Generate exactly {request.num_cards} flashcards to help a student learn key concepts about {request.topic} system design.
+
+Use this reference material:
+{context}
+
+Mix different card types: definitions, trade-offs, real-world examples, "why" questions.
+Each front should be a short question. Each back should be a clear, concise answer (2-3 sentences max).
+
+Return ONLY valid JSON, nothing else:
+{{
+  "cards": [
+    {{
+      "front": "What is consistent hashing?",
+      "back": "Servers and keys are placed on a ring. Adding/removing a server only moves a small fraction of keys — avoids full resharding.",
+      "category": "concept"
+    }}
+  ]
+}}
+
+Categories: concept, trade-off, example, why"""
+
+    response = gemini.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt
+    )
+
+    try:
+        import re
+        text = response.text.strip()
+        text = re.sub(r'^```json\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        return json.loads(text)
+    except Exception as e:
+        return {"error": "Failed to parse flashcards", "raw": response.text}
 
 
 # ── Feedback endpoint — thumbs up / down on AI responses ──
