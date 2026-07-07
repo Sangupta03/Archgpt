@@ -4,6 +4,8 @@ import DiagramPanel from "./DiagramPanel"
 import AuthButton from "./AuthButton"
 import Sidebar from "./Sidebar"
 import AuthSuccess from "./AuthSuccess"
+import QuizModal from "./QuizModal"
+import FlashcardModal from "./FlashcardModal"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
@@ -42,6 +44,8 @@ export default function App() {
   // "dark" or "light" — persisted to localStorage
   const [theme, setTheme] = useState(() => localStorage.getItem("archgpt_theme") || "dark")
   const [model, setModel] = useState("gemini-2.5-flash-lite")
+  const [showQuiz, setShowQuiz] = useState(false)
+  const [showFlashcards, setShowFlashcards] = useState(false)
 
   // Auth state
   const [user, setUser] = useState(null)
@@ -267,23 +271,42 @@ export default function App() {
           >↓ Save</button>
         )}
 
-        {/* Export to PDF — uses browser print dialog with print-specific CSS */}
+        {/* Export to PDF */}
         {messages.length > 0 && (
           <button
             onClick={() => window.print()}
             title="Export as PDF"
             style={{
-              background: "var(--bg-card)",
-              border: "1px solid var(--border)",
-              borderRadius: "7px",
-              padding: "5px 12px",
-              fontSize: "11px",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontWeight: "500"
+              background: "var(--bg-card)", border: "1px solid var(--border)",
+              borderRadius: "7px", padding: "5px 12px",
+              fontSize: "11px", color: "var(--text-muted)",
+              cursor: "pointer", fontWeight: "500"
             }}
           >⎙ PDF</button>
         )}
+
+        {/* Quiz and Flashcard buttons — always visible */}
+        <button
+          onClick={() => setShowQuiz(true)}
+          title="Quiz mode"
+          style={{
+            background: "var(--bg-card)", border: "1px solid var(--border)",
+            borderRadius: "7px", padding: "5px 12px",
+            fontSize: "11px", color: "var(--text-muted)",
+            cursor: "pointer", fontWeight: "500"
+          }}
+        >Quiz</button>
+
+        <button
+          onClick={() => setShowFlashcards(true)}
+          title="Flashcard mode"
+          style={{
+            background: "var(--bg-card)", border: "1px solid var(--border)",
+            borderRadius: "7px", padding: "5px 12px",
+            fontSize: "11px", color: "var(--text-muted)",
+            cursor: "pointer", fontWeight: "500"
+          }}
+        >Cards</button>
 
         {/* Light / dark toggle */}
         <button
@@ -340,6 +363,10 @@ export default function App() {
         {/* Diagram panel — gets theme so mermaid picks the right color scheme */}
         <DiagramPanel diagrams={diagrams} systemName={systemName} theme={theme} />
       </div>
+
+      {/* Modals — rendered on top of everything */}
+      {showQuiz && <QuizModal onClose={() => setShowQuiz(false)} />}
+      {showFlashcards && <FlashcardModal onClose={() => setShowFlashcards(false)} />}
     </div>
   )
 }
