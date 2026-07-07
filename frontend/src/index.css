@@ -157,3 +157,19 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .typing-dot { animation: none; opacity: 0.4; }
 }
+
+/* ── Print / PDF export ─────────────────────────────────── */
+/* Only the chat messages show up — everything else is hidden */
+@media print {
+  body { overflow: visible; height: auto; background: white; color: black; }
+
+  /* hide sidebar, diagram panel, header controls, input area */
+  nav, aside, header button, [data-noPrint],
+  .no-print { display: none !important; }
+
+  /* let the chat scroll area expand to full height */
+  div[style*="overflow: hidden"] { overflow: visible !important; height: auto !important; }
+
+  /* clean up bubble backgrounds for print */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

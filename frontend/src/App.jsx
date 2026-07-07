@@ -41,6 +41,7 @@ export default function App() {
 
   // "dark" or "light" — persisted to localStorage
   const [theme, setTheme] = useState(() => localStorage.getItem("archgpt_theme") || "dark")
+  const [model, setModel] = useState("gemini-2.5-flash-lite")
 
   // Auth state
   const [user, setUser] = useState(null)
@@ -160,12 +161,19 @@ export default function App() {
   }
 
   function extractSystemName(text) {
-    // "compare X and Y" or "compare X vs Y" → "X vs Y"
-    const compareAnd = text.match(/compare\s+([a-zA-Z]+)\s+and\s+([a-zA-Z]+)/i)
+    const t = text.trim()
+
+    // "compare X and Y" → "X vs Y"
+    const compareAnd = t.match(/compare\s+([a-zA-Z]+)\s+and\s+([a-zA-Z]+)/i)
     if (compareAnd) return `${compareAnd[1]} vs ${compareAnd[2]}`
 
-    const compareVs = text.match(/compare\s+([a-zA-Z]+)\s+(?:vs|versus)\s+([a-zA-Z]+)/i)
+    // "compare X vs Y" or "compare X versus Y"
+    const compareVs = t.match(/compare\s+([a-zA-Z]+)\s+(?:vs|versus)\s+([a-zA-Z]+)/i)
     if (compareVs) return `${compareVs[1]} vs ${compareVs[2]}`
+
+    // "X vs Y" typed directly (e.g. "myntra vs youtube")
+    const directVs = t.match(/^([a-zA-Z\s]+?)\s+(?:vs|versus)\s+([a-zA-Z\s]+?)$/i)
+    if (directVs) return `${directVs[1].trim()} vs ${directVs[2].trim()}`
 
     const patterns = [
       /design\s+(?:a\s+)?([a-zA-Z\s]+?)(?:\s+system|\s+shortener)?$/i,
@@ -173,7 +181,7 @@ export default function App() {
       /quiz\s+me\s+on\s+([a-zA-Z\s]+)/i,
     ]
     for (const p of patterns) {
-      const m = text.match(p)
+      const m = t.match(p)
       if (m) return m[1].trim()
     }
     return null
@@ -259,6 +267,24 @@ export default function App() {
           >↓ Save</button>
         )}
 
+        {/* Export to PDF — uses browser print dialog with print-specific CSS */}
+        {messages.length > 0 && (
+          <button
+            onClick={() => window.print()}
+            title="Export as PDF"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              borderRadius: "7px",
+              padding: "5px 12px",
+              fontSize: "11px",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontWeight: "500"
+            }}
+          >⎙ PDF</button>
+        )}
+
         {/* Light / dark toggle */}
         <button
           onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}
@@ -294,7 +320,7 @@ export default function App() {
 
         {/* Chat panel — resizable width */}
         <div style={{ width: `${panelWidth}px`, minWidth: `${panelWidth}px`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <ChatPanel messages={messages} onNewMessage={handleNewMessage} token={token} />
+          <ChatPanel messages={messages} onNewMessage={handleNewMessage} token={token} model={model} onModelChange={setModel} />
         </div>
 
         {/* Drag handle between panels */}

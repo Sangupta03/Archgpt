@@ -74,13 +74,19 @@ export default function DiagramPanel({ diagrams, systemName, theme }) {
   }
 
   const tabLabel = (d, i) => {
-    if (d.label) return d.label
-    // "Zomato vs Swiggy" → tab 0 = "Zomato", tab 1 = "Swiggy"
+    // if every diagram got the same label, it's a generic heading like "Architecture Diagram"
+    // — fall back to splitting the system name instead
+    const allSame = diagrams.length > 1 && diagrams.every(x => x.label === diagrams[0].label)
+
+    if (d.label && !allSame) return d.label
+
+    // "Myntra vs YouTube" → tab 0 = "Myntra", tab 1 = "YouTube"
     if (systemName?.includes(" vs ")) {
       const parts = systemName.split(" vs ")
-      return parts[i] || `Diagram ${i + 1}`
+      return parts[i]?.trim() || `Diagram ${i + 1}`
     }
-    return `Diagram ${i + 1}`
+
+    return d.label || `Diagram ${i + 1}`
   }
 
   // Shared style for the zoom / download buttons
