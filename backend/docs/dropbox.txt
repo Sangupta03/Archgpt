@@ -1,0 +1,164 @@
+DROPBOX / GOOGLE DRIVE SYSTEM DESIGN
+
+Overview:
+Dropbox is a cloud file storage and synchronization service. Users can store files in the cloud and access them from multiple devices, with changes synced automatically. Core challenges: (1) efficient sync — only send what changed, not the entire file, (2) handle concurrent edits from multiple devices, (3) store and retrieve petabytes of files reliably.
+
+Scale Numbers (Dropbox):
+- 700+ million registered users
+- 600,000+ business customers
+- 500 petabytes of data stored
+- 1 billion files uploaded per day
+- 10 million concurrent connected devices
+
+Core Features:
+1. Upload files to cloud storage
+2. Sync files across multiple devices
+3. Share files and folders with others
+4. Version history (restore deleted/older files)
+5. Offline access (local cache)
+6. Real-time collaboration (Google Docs style, for Google Drive)
+
+The Sync Problem — This is Everything:
+
+Naive approach: When file changes, upload entire file.
+Problem: A 10GB video with a 1KB edit = waste 10GB of bandwidth. Unacceptable.
+
+Chunking (Block-Level Sync):
+1. File is split into fixed-size blocks (4MB default)
+2. Each block is hashed (SHA-256)
+3. When file changes, only the changed blocks are identified by comparing hashes
+4. Only changed blocks are uploaded
+5. Metadata (block list with hashes) stored separately from block content
+
+Example: Edit 100 lines in a 500MB file
+- Only the 4MB block containing those lines has a different hash
+- Upload: 4MB instead of 500MB
+- 99% bandwidth saving
+
+Deduplication:
+- If block with hash "abc123" already exists in cloud, don't upload it
+- Many files have common blocks (PDF headers, common library files)
+- Content-addressed storage: block stored by its hash, not by name
+- This also means if two users upload the same file, it's only stored once
+
+Architecture Overview:
+
+Client (Desktop app):
+- Monitors local file system for changes (OS file watchers: inotify on Linux, FSEvents on Mac, ReadDirectoryChangesW on Windows)
+- Maintains local SQLite database of: file metadata, block hashes, sync status
+- On change: compute changed blocks, upload to Block Storage, update Metadata Server
+
+Components:
+1. Client apps (desktop, mobile, web)
+2. Block Storage Service — stores actual file content (blocks)
+3. Metadata Service — stores file/folder structure, block lists, versions
+4. Notification Service — notifies all connected devices when remote change happens
+5. API Gateway — routes requests, handles auth
+
+Block Storage:
+- Blocks stored in S3 (Amazon S3 in Dropbox's early days)
+- Dropbox later built their own storage: "Magic Pocket" (2016)
+- Magic Pocket: petabyte-scale storage system on commodity hardware
+- Key properties: immutable (blocks never modified, only new blocks added), content-addressed
+
+Metadata Database:
+- Stores file tree: folders, files, block lists
+- Critical path — must be fast and durable
+- Dropbox: custom MySQL with heavy sharding by user_id
+- Schema:
+  - files: file_id, user_id, path, name, size, created_at, modified_at, is_deleted
+  - blocks: block_id (hash), size, storage_path
+  - file_blocks: file_id, block_hash, block_index, version
+  - revisions: file_id, version_number, block_list, timestamp
+
+Version History:
+- Dropbox keeps 30-180 days of file history (depends on plan)
+- Each file change creates a new revision record (not a new copy of blocks)
+- Revision points to list of block hashes for that version
+- Restoring a version: just update the file's "current_blocks" pointer
+- Space-efficient: blocks shared across versions (only changed blocks are unique)
+
+Upload Flow:
+1. Client detects file change
+2. Client computes block hashes for entire file
+3. Client asks Metadata Service: "which of these blocks do you already have?"
+4. Metadata Service returns list of blocks that need uploading (the rest already exist)
+5. Client uploads only missing blocks to Block Storage
+6. Client sends updated file metadata to Metadata Service
+7. Metadata Service acknowledges success
+8. Notification Service pushes "file_changed" event to all other devices of this user
+
+Sync Flow (Other Devices):
+1. Notification Service sends long-poll or WebSocket notification to other devices
+2. Device receives "file X changed" notification
+3. Device fetches new metadata from Metadata Service (new block list)
+4. Device compares new block list to locally cached blocks
+5. Downloads only the blocks it doesn't have from Block Storage
+6. Reassembles file from blocks (in correct order from block index)
+7. Writes updated file to local disk
+
+Conflict Resolution:
+- What if two devices edit the same file simultaneously?
+- Dropbox approach: "conflicted copy" — create a second file named "file (John's conflicted copy 2024-01-15).docx"
+- Simple but sometimes frustrating for users
+- Google Drive uses operational transforms (like Google Docs) for real-time co-editing
+- Dropbox Paper (their docs product) also uses operational transforms
+
+Sharing:
+- Shared folders: both users see the folder in their Dropbox
+- When shared folder content changes, all members get notified
+- Implementation: folder has a list of member user_ids
+- Fanout: when file in shared folder changes, notify all members
+
+Link sharing:
+- Generate a unique random token: dropbox.com/s/random_token_here/file.pdf
+- Token stored in database with: file_id, permissions (view/edit), expiry
+- Anyone with link can access — no login required for view-only links
+
+Bandwidth Optimization:
+
+Delta sync:
+- Only changed blocks sent (explained above)
+- On mobile: wait for WiFi to sync large files by default
+
+Compression:
+- Blocks compressed before transmission (LZ4 or ZSTD)
+- Compression done on client before upload
+
+Bandwidth throttling:
+- Respect user settings to not monopolize their connection
+- Upload in background with configurable speed limit
+
+Caching:
+
+Client-side:
+- Blocks cached locally — if same block needed again, serve from local cache
+- LRU eviction when disk space is tight
+- "Smart Sync" (Dropbox Plus): show all files in folder but only download on access (placeholder files)
+
+CDN for downloads:
+- Frequently accessed blocks cached at CDN edge nodes
+- Especially useful for shared files that many people access
+
+Security:
+- Files encrypted at rest: AES-256 per block
+- Files encrypted in transit: TLS
+- Dropbox holds the encryption keys (not zero-knowledge — they can decrypt if compelled)
+- Dropbox Business: option for customer-managed keys
+
+Notification Service (Critical for Sync):
+- Long-polling: client holds open HTTP connection, server responds when change occurs
+- WebSocket: persistent connection for instant notifications
+- Challenge: 10M+ concurrent connected devices holding open connections
+- Solution: dedicated notification servers optimized for many idle connections (event loop model, Node.js or Go)
+
+Database Scaling:
+- Metadata service is the bottleneck
+- Sharding by user_id: all files for a user on same shard (locality)
+- 1000+ MySQL shards
+- ShardID embedded in file_id for routing
+
+Key Trade-offs:
+1. Chunking complexity vs bandwidth savings: Worth it — saves 90%+ bandwidth for typical edits
+2. Deduplication vs privacy concern: Blocks stored by content hash, so technically a block is shared between users. Addressed by always encrypting blocks.
+3. Eventual consistency for sync: Devices may briefly have stale state. Acceptable because sync happens within seconds.

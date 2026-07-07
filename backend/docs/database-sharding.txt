@@ -1,0 +1,166 @@
+DATABASE SHARDING AND PARTITIONING
+
+Overview:
+When a single database server can't handle the load (too many queries, too much data), you scale horizontally by splitting data across multiple servers. This is called sharding (horizontal partitioning). Understanding sharding is critical for system design interviews — almost every large-scale system uses it.
+
+Vertical vs Horizontal Scaling:
+- Vertical (scale up): add more CPU/RAM/disk to existing server. Simple but has limits.
+- Horizontal (scale out): add more servers. Complex but theoretically unlimited scale.
+- Sharding is horizontal scaling for databases.
+
+Types of Partitioning:
+
+1. Horizontal Partitioning (Sharding):
+- Split rows across multiple tables/servers
+- Different rows in different places
+- Example: users 1-1M on server 1, users 1M-2M on server 2
+- Most common type when people say "sharding"
+
+2. Vertical Partitioning:
+- Split columns across multiple tables/servers
+- User profile (name, email) on one server, user media (photos, videos) on another
+- Good for separating hot (frequently accessed) from cold data
+
+Sharding Strategies:
+
+1. Range-Based Sharding:
+- Partition by value range: users A-M on shard 1, N-Z on shard 2
+- Or by ID range: IDs 0-1M on shard 1, 1M-2M on shard 2
+- Pros: simple to implement, range queries easy
+- Cons: uneven distribution (many users start with common letters), hot shards
+
+2. Hash-Based Sharding:
+- shard_id = hash(shard_key) % num_shards
+- Example: user_id=123 → hash(123) % 4 → shard 2
+- Pros: even distribution, simple routing
+- Cons: range queries hard, adding/removing shards requires resharding
+
+3. Directory-Based Sharding:
+- Lookup table: shard_key → shard_id
+- Example: user_id=123 → shard_id=3 (looked up from directory)
+- Pros: flexible, can move data between shards easily
+- Cons: lookup table is a bottleneck/single point of failure
+
+4. Geographic Sharding:
+- Users in India → India shard, users in US → US shard
+- Good for data residency requirements and low latency
+- Cons: cross-region queries are slow
+
+Choosing the Shard Key (Critical Decision):
+
+The shard key determines how data is distributed. A bad shard key causes hot spots.
+
+Good shard key properties:
+- High cardinality: many distinct values (user_id is good, country is bad)
+- Even distribution: values spread evenly across shards
+- Query alignment: queries typically filter by shard key (so you hit one shard)
+- Immutable: shard key value doesn't change (moving records across shards is expensive)
+
+Common shard keys:
+- user_id: good for user-centric apps (all user's data in one shard = fast user queries)
+- tweet_id / post_id: good for content-centric queries
+- geographic hash: good for location-based apps
+- tenant_id: for multi-tenant SaaS applications
+
+Hot Shard Problem:
+- Some shard keys are much more popular than others
+- Example: sharding tweets by author_id — Elon Musk's shard gets all the traffic
+- Solution: split hot shards further, add sub-sharding for popular entities
+
+Consistent Hashing (Solves the Resharding Problem):
+
+Problem with hash(key) % N:
+- If you add a shard (N+1): almost all keys need to move to a new shard
+- Moving data is slow and disruptive
+
+Consistent hashing:
+- Imagine a ring (0 to 2^32)
+- Both servers and keys are hashed onto this ring
+- Each key is assigned to the nearest server clockwise
+- Adding a server: only the keys between the new server and its predecessor move
+- Removing a server: only its keys move to the next server
+- On average: only K/N keys need to move (K = total keys, N = number of servers)
+
+Virtual nodes (vnodes):
+- Each physical server owns multiple positions on the ring (virtual nodes)
+- More even distribution
+- When a server is added/removed, impact is spread across all remaining servers
+- Used by: Cassandra, DynamoDB, Riak
+
+Cross-Shard Queries (The Pain):
+
+Query: "find all users who signed up in January" (no shard key filter)
+- Must query ALL shards
+- Merge and sort results in application layer
+- Called "scatter-gather" or "fan-out query"
+- Expensive — avoid if possible
+
+Solution 1: Denormalize and duplicate data for query patterns
+Solution 2: Maintain a separate query service (Elasticsearch) for cross-shard queries
+Solution 3: Accept that cross-shard queries are slow, avoid them in hot paths
+
+Cross-Shard Joins:
+- Traditional SQL joins work within a shard
+- Cross-shard joins must be done in application code
+- Fetch data from shard A, fetch data from shard B, join in application memory
+- Very expensive — usually avoided by denormalization
+
+Cross-Shard Transactions:
+- ACID transactions across multiple shards require 2-Phase Commit (2PC)
+- 2PC is slow and can deadlock
+- Most distributed systems avoid this:
+  - Use eventual consistency instead of strong consistency
+  - Partition data such that transactions stay within one shard
+  - Use saga pattern for multi-step transactions
+
+Resharding:
+When a shard is too large (data grown) or too hot (traffic grown):
+1. Create two new shards
+2. Copy half the data from old shard to each new shard
+3. Redirect new writes to new shards
+4. Let old shard drain (serve reads while migration happens)
+5. Decommission old shard
+
+This is operationally complex — minimize resharding by:
+- Choosing shard count 10x what you need today (shards don't need to have equal hardware)
+- Planning for horizontal expansion within a shard (replication before sharding)
+
+Examples of Sharding in Real Systems:
+
+Instagram (PostgreSQL Sharding):
+- Shard key: user_id
+- Shard ID embedded in all object IDs using Postgres sequence trick
+- Instagram ran on sharded PostgreSQL for years — proof SQL can scale
+
+Discord (Message Sharding):
+- Shard key: channel_id (all messages in same channel on same Cassandra partition)
+- This makes "get last N messages in channel" extremely fast — single partition read
+
+Twitter (Gizzard):
+- Custom sharding framework on top of MySQL
+- Shard key: user_id for users, tweet_id for tweets
+- Separate shard namespaces for users and tweets
+
+Uber (Schemaless):
+- Custom MySQL-based sharded storage
+- Shard key: UUID-based entity IDs
+- Cell-based architecture: each "cell" is an independent shard cluster
+
+MongoDB Sharding:
+- Built-in sharding via "shard key" in collection definition
+- Config servers store metadata (which shard has which key ranges)
+- Mongos router: receives queries, routes to appropriate shards
+- Chunk migration: moves data between shards automatically when imbalanced
+
+When to Shard:
+- Single server maxing out storage? Shard.
+- Single server maxing out CPU/connections? Consider read replicas first, then shard.
+- Need to comply with data residency? Geographic sharding.
+- Most queries can use shard key? Good for sharding. Cross-shard queries common? Bad for sharding.
+
+Alternatives to Sharding:
+1. Read replicas: scale read-heavy workload without sharding complexity
+2. Caching: reduce DB load with Redis/Memcached
+3. Vertical scaling: get bigger server (limited but often the right first step)
+4. CQRS: separate read and write models, optimize each independently
+5. NoSQL: many NoSQL databases (Cassandra, DynamoDB) handle sharding automatically

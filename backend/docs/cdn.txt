@@ -1,0 +1,203 @@
+CDN — CONTENT DELIVERY NETWORK
+
+Overview:
+A CDN is a geographically distributed network of servers (edge nodes / Points of Presence / PoPs) that cache and serve content closer to users. Instead of every request going to your origin server (e.g., in US-East), a user in India gets content from a CDN node in Mumbai. Result: faster load times, reduced origin load, better global availability.
+
+Why CDN Matters:
+
+Without CDN:
+- User in Mumbai requests image hosted in US-East
+- Round-trip: Mumbai → ocean cables → US-East → back → 200ms+ latency
+- All users hit your one origin server — must handle all traffic
+
+With CDN:
+- First request: Mumbai CDN node doesn't have it → fetches from origin, caches it
+- Subsequent requests: served from Mumbai CDN node → 10-20ms latency
+- Origin handles only cache misses, not all traffic
+
+CDN Benefits:
+1. Lower latency: content served from nearest edge node
+2. Reduced origin load: 80-95% of requests served from cache
+3. Absorb DDoS: CDN can absorb massive traffic spikes (Cloudflare handles terabits/second)
+4. High availability: if origin is down, CDN serves cached content
+5. Global scale: CDN has PoPs in 100+ cities — instant global distribution
+6. Bandwidth cost reduction: CDN bandwidth is cheaper than origin bandwidth
+
+What CDNs Cache:
+
+Static Content (natural fit for CDN):
+- Images (JPEG, PNG, WebP, SVG)
+- Videos and audio
+- JavaScript bundles, CSS stylesheets
+- HTML files (if static site)
+- Fonts
+- Software downloads
+
+Dynamic Content (CDN can still help):
+- API responses with Cache-Control headers
+- Personalized pages: harder (need user context) — handled with Vary header or edge computing
+- Edge functions (Cloudflare Workers, Lambda@Edge): run code at CDN edge to personalize
+
+CDN Architecture:
+
+Hierarchy of servers:
+1. Origin Server: your actual server (AWS, your datacenter)
+2. Regional Cache (Shield): intermediate layer, reduces origin hits
+3. Edge PoP: the node closest to the user
+
+Request flow:
+1. User in Mumbai requests image.jpg
+2. DNS resolves to nearest CDN edge IP (using Anycast or GeoDNS)
+3. Edge node checks cache: HIT → serve immediately; MISS → forward to origin
+4. Origin returns content → edge caches it → serves to user
+5. Next user in Mumbai gets same file from cache
+
+Cache Key:
+- Default: full URL (https://cdn.example.com/image.jpg)
+- With query strings: can cache per unique query string or ignore them
+- With cookies/headers: can cache different versions per user-agent, language, etc.
+
+Push vs Pull CDN:
+
+Pull CDN (lazy caching — most common):
+- Don't pre-populate CDN
+- First request is a cache miss: CDN pulls from origin, caches it
+- Subsequent requests: cache hit
+- Content is cached when users actually request it
+- Examples: Cloudflare (default), Fastly, Akamai
+
+Push CDN (eager caching):
+- You proactively upload content to CDN before any user requests it
+- Useful for: new product launch (pre-populate before traffic spike), video releases
+- Netflix's Open Connect: Netflix pushes new movies to ISP CDN nodes overnight
+- You manage what's on the CDN — more control, more operational overhead
+- Examples: AWS CloudFront (can push), Netflix Open Connect
+
+Cache-Control Headers (How CDN Knows What to Cache):
+
+Origin server sets these HTTP response headers:
+
+Cache-Control: public, max-age=86400
+- public: can be cached by CDN (vs private: only browser cache)
+- max-age=86400: cache for 86400 seconds (24 hours)
+
+Cache-Control: no-cache
+- Don't cache — always go to origin (or at least revalidate)
+
+Cache-Control: s-maxage=3600
+- CDN-specific override: CDN caches for 1 hour (browser may cache differently)
+
+ETag / Last-Modified:
+- Origin includes ETag (hash of content) with response
+- CDN/browser can ask: "has this changed since ETag=abc123?"
+- Origin returns 304 Not Modified if unchanged (no body, saves bandwidth)
+- This is "conditional request" / cache revalidation
+
+Cache Invalidation (Hard Problem):
+
+"There are only two hard things in computer science: cache invalidation and naming things." — Phil Karlton
+
+Problem: you cached old.jpg for 24 hours. You upload new.jpg to same URL. Users see old version for 24 hours.
+
+Solutions:
+
+1. URL-based versioning (best practice):
+- image.jpg?v=123 → changes to image.jpg?v=124 on update
+- Or: image-abc123hash.jpg (hash in filename)
+- Different URL = new cache entry = immediate update
+- Used by: webpack, Next.js, all modern build tools
+
+2. CDN Purge API:
+- Explicitly invalidate specific URLs via API call
+- CDN marks cached version as stale, next request fetches from origin
+- AWS CloudFront: create invalidation request
+- Cloudflare: Purge Cache API
+- Can be slow (propagates across all edge nodes, minutes)
+- Cost: AWS charges per invalidation, Cloudflare allows free bulk invalidation
+
+3. Short TTL:
+- Set max-age=300 (5 minutes) for content that changes frequently
+- User might see 5-minute-old version — acceptable trade-off
+- High-traffic news sites use this for article pages
+
+4. Surrogate keys / Cache tags:
+- Tag cached objects with logical identifiers
+- Purge all objects with a tag in one API call
+- Fastly and Cloudflare support this
+- Example: tag all product images with product_id=123 → purge all on product update
+
+CDN for Video (Adaptive Bitrate Streaming):
+
+Video is the largest CDN workload (Netflix = 1/3 of US internet traffic).
+
+Video segmented into chunks (2-4 seconds each):
+- Each chunk at multiple quality levels (360p, 720p, 1080p, 4K)
+- Player requests chunks one by one, choosing quality based on current bandwidth
+- CDN caches each chunk individually
+- Popular videos: CDN hit rate near 100% (same chunks requested by millions)
+- Long-tail content: cache miss rate higher (rare videos not in cache)
+
+CDN for APIs (Edge Caching):
+
+Can you cache API responses?
+- GET /products (list): YES — same for everyone, cache 60 seconds
+- GET /products/123: YES — product data doesn't change often, cache 5 minutes
+- GET /cart: NO — different per user, private data
+- POST /orders: NO — writes, never cache
+
+Caching API responses reduces:
+- Latency: response from edge node (10ms) vs origin (100ms)
+- Database load: thousands of product requests per second become one database query per minute
+
+CDN Security:
+
+DDoS Protection:
+- CDN absorbs massive volumetric attacks (absorb at edge, never hits origin)
+- Cloudflare has defended against 71 Tbps attack (world record 2022)
+- Rate limiting at edge: block IPs making too many requests
+
+WAF (Web Application Firewall) at CDN edge:
+- Block SQL injection, XSS, bad bots before they hit your origin
+- OWASP Top 10 rules built in
+
+TLS/HTTPS:
+- CDN terminates TLS at edge (close to user = faster handshake)
+- CDN connects to origin over secure connection
+- Can enforce HSTS (HTTP Strict Transport Security)
+
+Popular CDN Providers:
+
+Cloudflare:
+- Largest network: 285+ cities, 13,000+ ISP connections
+- Free tier available
+- Built-in DDoS, WAF, Workers (edge compute)
+- Used by: Discord, Canva, DoorDash
+
+AWS CloudFront:
+- Tight integration with AWS services (S3, EC2, ALB)
+- Good for AWS-hosted applications
+- Lambda@Edge: run Node.js at CDN edge
+
+Fastly:
+- Instant purge (~150ms globally) — best cache invalidation
+- Surrogate keys for granular purging
+- VCL (Varnish Configuration Language) for custom caching logic
+- Used by: GitHub, Spotify, Twitter
+
+Akamai:
+- Oldest, largest CDN by PoP count (3900+ cities)
+- Enterprise focus
+- Used by: Apple, Microsoft, government sites
+
+Netflix Open Connect:
+- Netflix's custom CDN (not commercial)
+- ISP-embedded appliances, serves 90%+ of Netflix traffic
+- Purpose-built for video, petabyte-scale
+
+When to use CDN vs not:
+- Static assets (images, JS, CSS): ALWAYS use CDN
+- Videos: ALWAYS use CDN
+- Global user base: CDN is essential
+- Single-city app: CDN still useful for DDoS protection, HTTPS offload
+- Real-time data (stock prices, live scores): CDN with very short TTL or bypass
+- User-specific data (cart, account page): don't cache at CDN level (or use edge personalization)

@@ -1,0 +1,150 @@
+ZOMATO SYSTEM DESIGN
+
+Overview:
+Zomato is a food discovery and delivery platform operating in 25+ countries. Unlike Swiggy which focuses purely on logistics, Zomato combines restaurant discovery, user reviews, table reservations, and food delivery in one platform. This makes their architecture more complex — they need to handle both transactional speed (delivery) and social/discovery features (reviews, ratings, photos).
+
+Scale Numbers (approximate):
+- 100+ million monthly active users
+- 350,000+ restaurant partners
+- 300,000+ delivery partners
+- Peak orders: ~2 million per day
+- 5 billion+ reviews and ratings in the database
+
+Core Features to Design:
+1. Restaurant discovery and search
+2. Food ordering and delivery tracking
+3. Reviews, ratings, and photos
+4. Table reservations (Zomato Gold)
+5. Real-time delivery partner tracking
+6. Personalized recommendations
+
+Functional Requirements:
+- Users can search restaurants by cuisine, location, rating, price
+- Users can place orders and track delivery in real-time
+- Users can leave reviews with text, photos, ratings
+- Delivery partners receive order assignments via mobile app
+- Restaurants can manage menus, accept/reject orders
+
+Non-Functional Requirements:
+- High availability (99.99%) — food ordering is time-sensitive
+- Low latency for search and ordering (<200ms)
+- Real-time delivery tracking updates every 5 seconds
+- Eventually consistent for reviews and ratings
+- Handle 10x traffic spikes during lunch and dinner peaks
+
+High-Level Architecture:
+
+Client Apps (User, Restaurant, Delivery Partner) → CDN → API Gateway → Microservices
+
+Key Microservices:
+1. User Service — profiles, authentication, preferences
+2. Restaurant Service — menus, availability, ratings aggregation
+3. Search & Discovery Service — restaurant and dish search
+4. Order Service — order lifecycle management
+5. Delivery Service — partner assignment, route optimization
+6. Review Service — reviews, ratings, photos
+7. Notification Service — push, SMS, email
+8. Payment Service — payment gateway integration
+9. Recommendation Service — ML-based personalized feeds
+
+Database Choices:
+
+Restaurant Catalog:
+- MongoDB — flexible schema for menus (vary hugely across restaurants)
+- Each restaurant document contains nested menu items, categories, prices
+- Read-heavy, updated infrequently
+- Cached aggressively in Redis
+
+User Data:
+- PostgreSQL — structured user profiles, order history, addresses
+- ACID compliance needed for payment and order records
+
+Reviews and Ratings:
+- Cassandra — write-heavy, high volume, time-series nature
+- Ratings aggregation computed asynchronously using Kafka + Spark
+- Pre-computed average ratings stored in Redis for fast reads
+
+Search:
+- Elasticsearch — full-text search on restaurant names, cuisines, dishes
+- Geo-queries for "restaurants near me" using geo_distance filter
+- Index updated whenever restaurant data changes via Kafka events
+
+Real-time Location:
+- Redis with geo-spatial commands (GEOADD, GEOSEARCH)
+- Delivery partner location updated every 5 seconds
+- User sees partner location via WebSocket connection
+
+Photos and Media:
+- S3 or equivalent object storage
+- CDN (CloudFront) for fast image delivery globally
+- Image compression pipeline on upload
+
+Order Flow:
+1. User places order → Order Service creates order record (PostgreSQL)
+2. Kafka event published: "order_placed"
+3. Restaurant Service notifies restaurant (push notification via Firebase)
+4. Restaurant accepts → Kafka event: "order_accepted"
+5. Delivery Service finds nearest available partner (Redis geo-query)
+6. Partner assigned → route optimized using Google Maps API
+7. Location tracking begins → Redis updated every 5s
+8. User sees real-time updates via WebSocket / SSE
+9. Order delivered → Payment Service processes payment
+10. Review prompt sent after delivery
+
+Discovery and Recommendations:
+
+Zomato's competitive advantage is discovery — not just ordering.
+- Collaborative filtering: "users like you ordered from X"
+- Content-based: based on past orders and cuisine preferences
+- Trending: what's popular in user's neighborhood right now
+- New on Zomato: newly onboarded restaurants need visibility
+
+The recommendation engine runs as a batch job (Apache Spark) that updates user personalization scores daily, with a real-time layer that adjusts for recency and current location.
+
+Search Architecture:
+- Elasticsearch cluster with 3 primary shards, 2 replicas each
+- Data sync from MongoDB via Kafka Connect
+- Custom scoring function weights: rating (40%), distance (30%), popularity (20%), personalization (10%)
+- Autocomplete using Elasticsearch completion suggester
+- Geospatial filtering: uses bounding box first (fast), then geo_distance (accurate)
+
+Delivery Partner Assignment:
+1. Order arrives → query Redis for delivery partners within 3km radius
+2. Sort by distance + current load (orders already in progress)
+3. Send assignment to top 3 partners simultaneously
+4. First to accept gets the order (rest get cancellation)
+5. If no acceptance in 30s, radius expands to 5km
+
+Table Reservations (Zomato Gold):
+- Separate Reservation Service
+- PostgreSQL with row-level locking to prevent double booking
+- Time slots managed as inventory slots
+- Redis distributed lock when booking a slot to handle concurrent requests
+
+Peak Traffic Handling:
+- Auto-scaling of stateless microservices (Kubernetes HPA)
+- Database read replicas for Restaurant and User services
+- Circuit breakers between services (Hystrix pattern)
+- Queue-based load leveling for restaurant notifications
+- Graceful degradation: if recommendations fail, show popular restaurants
+
+Key Trade-offs:
+
+Zomato vs Swiggy architectural difference:
+- Zomato optimizes for discovery and engagement — complex recommendation system, social features (reviews, following foodies), broader content
+- This adds architectural complexity: GraphDB for social graph, ML pipelines, more complex search scoring
+- Trade-off: higher development overhead vs richer user experience
+
+Consistency vs Availability:
+- Orders, Payments: Strong consistency (PostgreSQL ACID)
+- Reviews, Ratings: Eventually consistent (Cassandra + async aggregation)
+- Restaurant availability: Eventually consistent — a restaurant marked open might be 30s delayed, acceptable
+
+CAP Choice:
+- Order and Payment systems: CP (consistency + partition tolerance) — never lose an order
+- Review and Discovery systems: AP (availability + partition tolerance) — stale data okay
+
+Zomato-Specific Scaling Challenges:
+1. Hyperlocal nature — need to know which restaurants deliver to which pin codes. Each restaurant has a delivery radius polygon stored in PostGIS.
+2. Menu updates — restaurants change prices/availability frequently. Menu cache has 5-minute TTL, with event-driven invalidation on menu updates.
+3. Surge pricing — computed in real-time based on demand/supply ratio in each zone. Uses a separate Pricing Service that reads from Redis counters.

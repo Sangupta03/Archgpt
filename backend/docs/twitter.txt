@@ -1,0 +1,129 @@
+TWITTER (X) SYSTEM DESIGN
+
+Overview:
+Twitter is a social media platform for short-form posts (tweets, 280 chars). The core challenge is the news feed — when a user with 50 million followers tweets, 50 million people should see it in their feed almost instantly. This "fanout" problem is one of the hardest in distributed systems.
+
+Scale Numbers:
+- 350+ million monthly active users
+- 500 million tweets per day (~6000 tweets/second)
+- 150 million daily active users
+- Peak: Obama election tweet — 150,000 tweets/second
+- Average user follows 200 accounts
+- 1% of users have 1M+ followers (celebrities, news accounts)
+
+Core Features to Design:
+1. Post a tweet (text, images, videos)
+2. Follow/unfollow users
+3. Home timeline (feed of people you follow)
+4. Search tweets
+5. Trending topics
+6. Notifications (likes, retweets, replies)
+
+The Hard Problem — Timeline/Feed Generation:
+
+Two approaches: Fan-out on Write (push) vs Fan-out on Read (pull)
+
+Fan-out on Write (Push Model):
+- When user A tweets, immediately copy tweet ID to every follower's feed cache
+- Read is fast — just fetch pre-computed feed from Redis
+- Problem: if A has 50M followers, writing 50M entries takes too long
+- Called "hot key" problem — celebrity tweets overwhelm the system
+
+Fan-out on Read (Pull Model):
+- When user opens app, fetch tweets from all accounts they follow
+- Merge and sort by timestamp
+- Problem: if following 1000 people, need 1000 queries → too slow
+
+Twitter's Hybrid Approach:
+- Regular users (< 1M followers): Fan-out on write — pre-compute their followers' feeds
+- Celebrities (1M+ followers): Fan-out on read — their tweets are fetched separately when feed is loaded
+- Feed = pre-computed feed + lazy-loaded celebrity tweets merged at read time
+
+Data Storage:
+
+Tweets:
+- MySQL with Vitess (MySQL clustering) for tweets table
+- Tweet IDs use Snowflake ID generator (timestamp + machine ID + sequence) — guarantees unique, sortable IDs
+- Old tweets (>7 days) moved to cold storage (Hadoop/S3)
+
+User Relationships (Follow Graph):
+- Separate social graph service
+- FlockDB (Twitter's own graph database) or Redis sorted sets
+- Follow relationship: user_id → set of followed_user_ids
+- Follower relationship: user_id → set of follower_ids
+- Both directions maintained for fast lookups
+
+Timeline Cache:
+- Redis — each user has a "home timeline" key with list of tweet IDs (not full tweets)
+- Stores last 800 tweet IDs per user
+- Full tweet data fetched from Tweet Store via tweet IDs (separate lookup)
+- This separation reduces memory usage significantly
+
+Media Storage:
+- Images/videos stored in Blob Storage (S3-equivalent)
+- Served through CDN globally (Fastly)
+- Videos transcoded to multiple resolutions on upload (FFmpeg pipeline)
+- Thumbnails generated asynchronously
+
+Tweet Posting Flow:
+1. User posts tweet → Tweet Service validates (length, content policy)
+2. Tweet stored in MySQL, gets Snowflake tweet_id
+3. Media processed asynchronously (if any)
+4. Fanout Service picks up via Kafka event "tweet_created"
+5. Fanout Service queries Social Graph: get all followers of this user
+6. For each follower (if < 1M followers): add tweet_id to their Redis timeline list
+7. Celebrities skipped in fanout — handled at read time
+
+Timeline Read Flow:
+1. User opens app → Timeline Service called
+2. Fetch pre-computed tweet IDs from Redis (fast)
+3. Merge with celebrity tweets (fetched real-time from their tweet lists)
+4. Hydrate tweet IDs into full tweet objects (tweet content, user info)
+5. Apply filters (muted words, blocked users)
+6. Return paginated results
+
+Search Architecture:
+- Elasticsearch for full-text tweet search
+- Tweets indexed in near real-time via Kafka pipeline
+- Trending: count tweet volumes per hashtag in sliding 24h window
+- Real-time trending uses Redis counters with time-bucket keys
+- Trending algorithm also considers novelty (spike detection, not just volume)
+
+Notifications:
+- Notification Service consumes Kafka events (liked, retweeted, mentioned)
+- Fan-out to push notification services (APNs for iOS, FCM for Android)
+- In-app notifications stored in Cassandra (write-heavy, read occasionally)
+- Rate limiting: max 100 notifications/hour to prevent spam
+
+Rate Limiting:
+- Token bucket algorithm per user
+- Implemented at API Gateway layer
+- Limits: 300 tweets/3h per user, 100 search queries/15min
+
+Scaling Twitter-Specific Challenges:
+
+The Thundering Herd:
+- When a celebrity tweets, millions of followers load the app simultaneously
+- Solution: add jitter to cache expiry times, queue-based processing of fanout
+
+Write Amplification:
+- 1 tweet from celebrity = 50M write operations
+- Mitigation: batch writes, async processing, skip pre-computation for very-high-follower accounts
+
+Hot Tweets:
+- Viral tweet gets millions of reads per second
+- Solution: tweet is cached at CDN edge, not just Redis
+- Extra replication for hot tweet IDs
+
+Geographic Distribution:
+- Multiple data centers globally
+- User assigned to nearest region for low latency
+- Cross-region replication for global accounts (celebrities accessible worldwide)
+
+Key Databases Summary:
+- MySQL + Vitess: tweets, user profiles
+- Redis: timeline caches, trending counters, rate limiting
+- Cassandra: notifications, direct messages, activity logs
+- Elasticsearch: search index
+- Hadoop/S3: cold storage for old tweets, analytics
+- FlockDB/Redis: social graph (who follows whom)

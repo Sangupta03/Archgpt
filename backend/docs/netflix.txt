@@ -1,0 +1,152 @@
+NETFLIX SYSTEM DESIGN
+
+Overview:
+Netflix is the world's largest video streaming service. The core challenges are: (1) store and serve petabytes of video content globally with low latency, (2) handle 200+ million concurrent streams without buffering, (3) recommend personalized content from 15,000+ titles. Netflix invented or popularized several distributed systems concepts: Chaos Engineering, microservices at scale, and the CDN model (Open Connect).
+
+Scale Numbers:
+- 230+ million subscribers in 190+ countries
+- 200+ million concurrent streams during peak
+- Petabytes of video content
+- 1/3 of all internet traffic in North America at peak hours
+- 15,000+ titles in catalog (varies by region)
+- 80% of viewing is from recommendations
+
+Core Features to Design:
+1. Video upload and encoding pipeline
+2. Video streaming and adaptive bitrate
+3. Content delivery (CDN)
+4. Personalized recommendations
+5. Search
+6. User account and subscription management
+
+Video Upload and Encoding Pipeline (Content Ingestion):
+
+When Netflix receives a movie from a studio:
+1. Original file uploaded to S3 (raw, uncompressed — can be 100GB+)
+2. Validation Service checks file integrity, format compliance
+3. Encoding Farm (thousands of EC2 instances) begins transcoding
+
+Transcoding:
+- Split video into chunks (2-4 minutes each)
+- Each chunk encoded in parallel across multiple machines
+- For each chunk, create 20+ versions:
+  - Multiple resolutions: 240p, 360p, 480p, 720p, 1080p, 4K
+  - Multiple codecs: H.264, H.265 (HEVC), AV1 (most efficient, newer devices)
+  - Multiple bitrates per resolution: e.g., 1080p at 3Mbps and 6Mbps
+- Total: one movie becomes 100+ encoded files
+- All files stored in S3, then replicated to Open Connect CDN
+
+Adaptive Bitrate Streaming (ABR):
+- Player monitors network speed every few seconds
+- Based on speed, requests next chunk at appropriate quality
+- If network drops, seamlessly switches to lower quality to prevent buffering
+- Netflix uses DASH (Dynamic Adaptive Streaming over HTTP) and their own ISA (Informed Streaming Architecture)
+- Player predicts future bandwidth using ML model (considering time of day, ISP, device)
+
+Open Connect — Netflix's Custom CDN:
+
+Netflix built its own CDN instead of using Cloudflare/Akamai for 90% of traffic.
+
+Open Connect Appliances (OCAs):
+- Purpose-built servers colocated inside ISP data centers worldwide
+- 1000+ OCA deployments in ISPs globally
+- Each OCA has 100-500TB of storage (stores popular content locally)
+
+How content gets to OCAs:
+- Netflix analyzes viewing patterns to predict what will be popular in each region
+- Popular content is proactively pushed to relevant OCAs overnight (off-peak hours)
+- Result: when a user presses play, their ISP's OCA serves the video — no transit across internet
+
+This eliminates 90%+ of Netflix traffic from the public internet, dramatically reducing latency and cost.
+
+Playback Architecture:
+1. User presses play → Player Service called
+2. Player Service returns: list of OCA servers sorted by proximity + health
+3. Player picks fastest OCA (measured by test requests)
+4. Player fetches manifest file (list of all chunk URLs for all quality levels)
+5. Player begins streaming, selecting quality per chunk based on bandwidth
+6. CDN fallback: if OCA fails, fall back to S3 directly
+
+Recommendation System — The Crown Jewel:
+
+Netflix's recommendation engine drives 80% of what people watch.
+
+Data collected:
+- What you watched, when, and how much (did you finish it?)
+- When you paused, fast-forwarded, rewound
+- Search history, ratings (thumbs up/down)
+- Time of day, device, location
+- What's trending globally and regionally
+
+Algorithms:
+1. Collaborative Filtering: "Users similar to you watched X"
+   - Matrix factorization: user-item matrix decomposed into latent factors
+   - Computed offline using Spark on Hadoop, updated daily
+
+2. Content-Based Filtering: "Because you watched action movies..."
+   - Metadata tags: genre, director, cast, mood, pacing
+   - Embedding similarity using deep learning
+
+3. Contextual Bandits (online learning):
+   - A/B test thumbnail images — different thumbnails shown to different users
+   - Learn which thumbnail maximizes click-through rate
+   - Also tests row ordering on homepage in real-time
+
+4. Row Generation: each row on Netflix homepage (Trending, Because You Watched, etc.) is a separate ML model
+
+Thumbnails are personalized — if you watch mostly action films, you'll see the action-heavy thumbnail of a movie; if you prefer romance, you'll see the romantic thumbnail of the same movie.
+
+Data Infrastructure:
+
+User activity events → Kafka → Apache Flink (stream processing) → two paths:
+1. Real-time path: update Redis for immediate personalization signals
+2. Batch path: Apache Spark on S3/Hadoop for large model training
+
+Data Warehouse: Apache Iceberg on S3 (exabyte-scale analytics)
+
+Database for User Data:
+- MySQL (via RDS): account management, billing
+- Cassandra: viewing history, user preferences (write-heavy, geographically distributed)
+- Redis: session data, real-time recommendation cache, rate limiting
+- Elasticsearch: search index over content catalog
+
+Microservices Architecture:
+Netflix is the company that popularized microservices. They have 700+ microservices.
+
+Key services:
+- API Gateway (Zuul): routes requests to appropriate microservices
+- Identity Service: authentication, authorization
+- Billing Service: subscription management, payment processing
+- Content Catalog Service: metadata for all titles
+- Streaming Service: generates playback URLs
+- Recommendation Service: personalized rows and rankings
+- Search Service: content search
+- Notification Service: email, push notifications
+
+Service communication: REST for synchronous, Kafka for async events
+Service discovery: Eureka (Netflix's open-source discovery server)
+Circuit breaker: Hystrix (Netflix's open-source library) — if a service fails, fail fast instead of cascading
+
+Chaos Engineering:
+Netflix invented Chaos Engineering — deliberately injecting failures in production to test resilience.
+- Chaos Monkey: randomly kills production instances
+- Chaos Gorilla: takes down entire Availability Zone
+- Result: Netflix is resilient because teams design for failure from day one
+
+Fault Tolerance Patterns:
+- All services designed to degrade gracefully
+- If recommendation service fails: show popular content instead of personalized
+- If search fails: show trending content
+- Circuit breakers everywhere — prevent cascade failures
+
+A/B Testing at Scale:
+- Netflix runs hundreds of A/B tests simultaneously
+- Every UI change, algorithm change, thumbnail — tested on user segments
+- Statistical significance computed using Bayesian methods
+- Platform: XP (internal A/B testing platform)
+
+Key Architectural Decisions and Reasons:
+1. Custom CDN (Open Connect): Saves $1B+/year vs commercial CDN, better control over cache policy, solves last-mile latency
+2. Cassandra for viewing history: Write-heavy workload, 230M users × watching 2 shows/day = massive write volume, Cassandra's LSM-tree handles this perfectly
+3. Microservices: Each team owns their service end-to-end, deploy independently, scale independently
+4. AV1 codec: 30% more efficient than H.265, reduces bandwidth costs significantly

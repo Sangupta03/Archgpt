@@ -1,0 +1,135 @@
+SQL VS NOSQL — WHEN TO USE WHICH
+
+Overview:
+One of the most common system design interview questions is "what database would you use?" There's no universal answer — the right choice depends on your data model, access patterns, consistency requirements, and scale. Understanding the trade-offs is more important than memorizing which is "better."
+
+SQL (Relational Databases):
+Examples: PostgreSQL, MySQL, SQLite, SQL Server, Oracle
+
+Core Characteristics:
+- Data organized in tables with fixed schemas (columns defined upfront)
+- ACID transactions: Atomicity, Consistency, Isolation, Durability
+- SQL query language — powerful, joins, aggregations, subqueries
+- Strong consistency — reads always reflect latest writes
+- Relations between tables via foreign keys
+- Vertical scaling primarily (add more CPU/RAM to one server)
+
+When to use SQL:
+- Complex relationships between entities (users → orders → products → inventory)
+- Need ACID transactions (banking, e-commerce, healthcare)
+- Data structure is well-defined and unlikely to change frequently
+- Need complex queries with joins and aggregations
+- Team knows SQL well (most developers do)
+- Compliance requirements (many regulations require ACID)
+
+NoSQL (Non-Relational Databases):
+Four types: Document, Key-Value, Column-Family, Graph
+
+1. Document Stores (MongoDB, CouchDB, Firestore):
+- Data stored as JSON/BSON documents
+- Flexible schema: different documents can have different fields
+- Good for: product catalogs, user profiles, content management
+- Example: MongoDB stores restaurant menus — each restaurant has different menu structure
+- Query: rich queries on nested fields, but no joins across collections
+
+2. Key-Value Stores (Redis, DynamoDB, Memcached):
+- Simplest NoSQL: key → value
+- Extremely fast (O(1) lookup)
+- Good for: caching, session storage, rate limiting, leaderboards (Redis sorted sets)
+- Limited query capability — only lookup by key (or key prefix)
+- Redis extra: supports list, set, hash, sorted set, stream data structures
+
+3. Wide-Column / Column-Family (Cassandra, HBase, DynamoDB):
+- Rows with flexible columns, organized by partition key
+- Data spread across nodes by partition key — horizontally scalable
+- Good for: time-series data, IoT data, message history, activity logs
+- Cassandra strengths: write-heavy workloads, no single point of failure
+- Query: must specify partition key; range queries on sort key; no arbitrary queries
+
+4. Graph Databases (Neo4j, Amazon Neptune, JanusGraph):
+- Data stored as nodes and edges (relationships)
+- Optimized for traversing relationships
+- Good for: social networks (friends-of-friends), recommendation engines, fraud detection
+- Query: Cypher (Neo4j), Gremlin — traverse graph relationships
+- Overkill for simple use cases; excellent for complex relationship queries
+
+Comparison Table:
+
+Property           | SQL (PostgreSQL)    | Document (MongoDB) | Wide-Column (Cassandra) | Key-Value (Redis)
+Schema             | Fixed               | Flexible           | Flexible columns        | None (any value)
+Transactions       | Full ACID           | Multi-doc ACID     | Lightweight batch only  | Basic (MULTI/EXEC)
+Query Language     | SQL (very powerful) | MQL (moderate)     | CQL (limited)           | Commands only
+Horizontal Scale   | Hard (sharding)     | Built-in sharding  | Native (ring)           | Cluster mode
+Consistency        | Strong              | Tunable            | Tunable (eventual)      | Strong (single) / Eventual (cluster)
+Best for           | Relations, ACID     | Documents, JSON    | Time-series, wide rows  | Cache, sessions, real-time
+
+Common Real-World Combinations:
+
+Most large systems use multiple databases (polyglot persistence):
+
+Uber:
+- MySQL (sharded): trip data, user accounts (ACID needed)
+- Redis: driver locations (fast geo-queries), surge pricing, caching
+- Kafka: event streaming for all services
+
+Instagram:
+- PostgreSQL: posts, comments, user profiles (started here, scaled with sharding)
+- Cassandra: direct messages, activity feeds (write-heavy)
+- Redis: feed caches, session storage
+- Elasticsearch: search index
+
+Netflix:
+- MySQL/RDS: account management, billing (ACID)
+- Cassandra: viewing history, user preferences (write-heavy, eventually consistent)
+- Redis: session tokens, recommendation cache
+- S3 + Iceberg: data warehouse for analytics
+
+Specific Scenarios and Recommendations:
+
+Scenario: User authentication and sessions
+- Session storage: Redis (fast, TTL built-in)
+- User credentials: PostgreSQL (ACID, rarely changes)
+
+Scenario: Product catalog (e-commerce)
+- MongoDB — different products have different attributes (phones have RAM, shoes have size)
+- Flexible schema is a major advantage here
+
+Scenario: Order processing
+- PostgreSQL or MySQL — ACID critical (don't double-charge, don't lose orders)
+- Transactions spanning order, inventory, payment must be atomic
+
+Scenario: Real-time messaging (WhatsApp, Discord)
+- Cassandra — write-heavy (billions of messages/day), time-series (sorted by timestamp)
+- Redis — presence/online status (fast read/write, TTL for offline expiry)
+
+Scenario: Social network feed
+- Cassandra — store pre-computed feeds (append-heavy, read by user_id + timestamp)
+- Redis — cache hot feeds for active users
+
+Scenario: Location tracking (Uber, food delivery)
+- Redis — geospatial commands (GEOADD, GEOSEARCH), updates every 4 seconds
+- Cassandra or PostgreSQL — historical location data for analytics
+
+Scenario: Analytics / Reporting
+- Apache Hive / BigQuery / Snowflake — columnar storage, optimized for analytical queries (OLAP)
+- Not for operational databases — for offline analysis
+
+Scenario: Content search (Airbnb listings, Twitter search)
+- Elasticsearch — full-text search, filters, geo-queries, fast aggregations
+- Not a primary database — synced from primary DB via Kafka pipeline
+
+SQL Scaling Techniques (before switching to NoSQL):
+1. Read replicas: route read queries to replicas, writes to primary
+2. Connection pooling: PgBouncer — reuse database connections
+3. Indexing: proper indexes can make 1000x difference
+4. Caching: Redis in front of PostgreSQL eliminates 80%+ of DB load
+5. Vertical scaling: bigger server often solves immediate problem
+6. Horizontal sharding: shard by user_id — each shard is a PostgreSQL instance
+
+Rule of Thumb:
+- Start with PostgreSQL — it's battle-tested, ACID, scales to hundreds of millions of rows
+- Add Redis for caching and fast data structures (almost always needed)
+- Add Elasticsearch for search (don't build search on top of SQL)
+- Consider Cassandra when write volume is extremely high (billions/day)
+- Add MongoDB if your data is truly document-shaped with variable schema
+- Never add a database just because it's trendy — each adds operational complexity

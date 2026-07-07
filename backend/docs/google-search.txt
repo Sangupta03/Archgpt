@@ -1,0 +1,173 @@
+GOOGLE SEARCH SYSTEM DESIGN
+
+Overview:
+Google Search indexes 100+ billion web pages and serves 8.5 billion searches per day, returning results in under 100ms. The three main challenges: (1) crawling — discover and download the entire web, (2) indexing — process and store content for fast retrieval, (3) ranking — determine the most relevant results for each query.
+
+Scale Numbers:
+- 8.5 billion searches per day (~100,000 queries/second)
+- 100+ billion indexed web pages
+- Crawling: fetch billions of pages per day
+- Index size: hundreds of petabytes
+- Response time: <100ms for most queries
+- 92% global search market share
+
+Three-Phase Architecture:
+
+Phase 1: Web Crawling
+Phase 2: Indexing
+Phase 3: Query Processing & Ranking
+
+PHASE 1: WEB CRAWLING
+
+The web is not given to you — Google must discover it.
+
+Googlebot (Web Crawler):
+- Starts with "seed URLs" (known high-quality sites)
+- Downloads HTML of each page
+- Extracts all hyperlinks from the page
+- Adds newly discovered URLs to the crawl queue
+- Repeat infinitely
+
+Crawl Frontier (URL Queue):
+- URL Scheduler: decides which URLs to crawl next and when
+- Priority factors: PageRank of the page, how often content changes, last crawl time
+- News sites: crawled every few minutes
+- Rarely updated pages: crawled every few weeks
+
+Politeness:
+- Can't overwhelm any single website
+- Rate limit per domain: crawl 1 page/sec from a domain by default
+- Respect robots.txt (website's crawl exclusion rules)
+- Crawl budget: allocation per domain
+
+Distributed Crawling:
+- Thousands of crawling machines globally
+- URL space partitioned: each machine owns a shard of domains
+- Uses consistent hashing to assign domains to crawlers
+
+Deduplication:
+- Many pages have duplicate content (mirrors, print pages)
+- SimHash: approximate hash that is similar for near-duplicate content
+- Near-duplicates identified and deduplicated before indexing
+
+PHASE 2: INDEXING
+
+Raw HTML → Searchable index (like a book index but for the entire web)
+
+Document Processing Pipeline (MapReduce/Dataflow):
+1. HTML parsing: extract text, clean up HTML tags
+2. Language detection
+3. Text analysis: tokenization, stemming (run/running → run), stop word removal
+4. Anchor text extraction: text of hyperlinks pointing to this page
+5. Metadata extraction: title, meta description, headings (H1, H2)
+6. Image OCR: extract text from images
+7. PageRank computation (link analysis)
+
+Inverted Index (Core Data Structure):
+An inverted index maps: term → list of (document_id, positions, frequency)
+
+Example:
+"pizza" → [(doc1, [position: 5, 23, 100], freq: 3), (doc2, [position: 14], freq: 1), ...]
+"delivery" → [(doc1, [position: 24], freq: 1), (doc5, [position: 8, 12], freq: 2), ...]
+
+This allows: given a search term, instantly find all documents containing it.
+
+Why inverted index?
+- Without it: to find all pages about "pizza", you'd scan 100B pages
+- With inverted index: look up "pizza" key → instantly get list of documents
+
+Google uses a multi-level inverted index:
+- Segmented into "shards" — each shard indexes a portion of the web
+- Each shard distributed across multiple machines for redundancy
+
+Forward Index: document_id → full document content (for snippet generation)
+Inverted Index: term → posting list (for retrieval)
+
+DocRank (Static scores, computed offline):
+- PageRank: measure of page authority based on incoming links
+- Freshness score: how recently the page was updated
+- Quality score: spam detection, content quality signals
+- These scores are pre-computed and stored with the index
+
+PHASE 3: QUERY PROCESSING
+
+When you type "best pizza delivery near me" and hit search:
+
+Query Understanding:
+1. Spell correction: "piza" → "pizza"
+2. Query expansion: "pizza delivery" might also search for "pizza order online"
+3. Intent detection: navigational (go to site), informational (learn something), transactional (buy something)
+4. Named entity recognition: "near me" → use user's location
+5. Query classification: is this a question? A local search? A shopping query?
+
+Retrieval (Finding Candidates):
+1. Query tokenized: ["best", "pizza", "delivery", "near", "me"]
+2. Stop words removed: ["best", "pizza", "delivery"]
+3. Each term looked up in inverted index → posting lists
+4. Posting lists merged (AND/OR logic): find documents containing multiple terms
+5. Geo filter applied: restrict results to local businesses (for "near me" queries)
+6. Result: ~thousands of candidate documents
+
+Ranking (The Hard Part — PageRank + ML):
+
+Classic PageRank (Larry Page's original algorithm):
+- Pages linked to by many high-quality pages score higher
+- Iterative algorithm: PageRank of a page depends on PageRank of pages linking to it
+- Converges after many iterations
+- Computed offline on the entire web graph using MapReduce
+
+Modern Ranking — RankBrain and Neural Matching:
+Google now uses ML for ranking, not just PageRank.
+
+Key ranking signals (200+ total):
+- Relevance: does page match query terms, in what context?
+- Authority: PageRank, backlink quality and quantity
+- Freshness: how recent is the content (important for news queries)
+- User signals: CTR, dwell time (how long users stay on result)
+- Page quality: page speed, mobile-friendliness, HTTPS, Core Web Vitals
+- Exact match: does title/URL contain exact query?
+
+BERT and MUM (modern neural models):
+- BERT: understands context and nuance in queries (2019)
+- "Can you get medicine for someone at pharmacy?" — understands "someone" is the patient, not the searcher
+- MUM (2021): multimodal, 1000x more powerful than BERT, handles complex multi-step queries
+
+Serving Infrastructure:
+- Index sharded across thousands of machines globally
+- Each query hits all shards in parallel → results merged by ranking server
+- Target: <100ms total latency including network
+
+Caching:
+- Query cache: popular queries cached at multiple levels
+- CDN: result pages for common queries cached at edge
+- ~15-20% of queries are unique per day — cache hit rate is high
+
+Knowledge Graph:
+- Google's structured database of real-world entities (people, places, organizations)
+- Powers "info boxes" on the right side of results
+- ~500 billion facts, 5 billion entities
+- Sources: Wikipedia, Wikidata, government databases, official websites
+- Stored in a graph database — entities connected by relationships
+
+Featured Snippets and Zero-Click Searches:
+- For queries with clear answers, Google shows the answer directly
+- Extracted from high-ranking pages using NLP
+- Controversy: user gets answer without visiting website (bad for publishers)
+
+Local Search:
+- Google My Business index: restaurants, stores, hours, reviews
+- Local ranking factors: proximity, relevance, prominence
+- Map results use separate index from web results
+
+Spam Detection:
+- Constant cat-and-mouse with SEO spam
+- Signals: link farms, keyword stuffing, cloaking (different content for Googlebot vs users)
+- Penguin algorithm: penalize manipulative link schemes
+- Panda algorithm: penalize low-quality content
+- Manual penalties: human reviewers flag egregious spam
+
+System Design Summary:
+- Storage: BigTable and Colossus (Google's distributed file system) — petabyte-scale
+- Processing: MapReduce, Apache Beam (Dataflow) for index construction
+- Serving: custom low-latency serving layer, global CDN
+- ML: TensorFlow for ranking models, updated continuously

@@ -1,0 +1,147 @@
+UBER SYSTEM DESIGN
+
+Overview:
+Uber connects riders needing a ride with nearby drivers in real-time. The core challenges are: (1) real-time geospatial matching — find the closest driver to a rider in milliseconds, (2) surge pricing — compute dynamic prices based on supply/demand in each zone, (3) trip state machine — manage the full lifecycle from request to payment.
+
+Scale Numbers:
+- 100+ million monthly active users
+- 5+ million active drivers worldwide
+- 25 million trips per day
+- Location updates from every driver every 4 seconds
+- Operating in 70+ countries, 10,000+ cities
+
+Core Features to Design:
+1. Rider requests a trip
+2. System finds nearest available driver
+3. Driver accepts and navigates to rider
+4. Trip tracking in real-time
+5. Dynamic surge pricing
+6. Payment processing after trip
+
+The Hardest Problem — Real-Time Location Matching:
+
+Naive approach: store (lat, lng) for each driver in a database, query with a radius filter. Problem: 5 million drivers sending location every 4 seconds = 1.25 million writes/second. SQL can't handle this.
+
+Uber's solution: Geohashing
+
+Geohash converts a (lat, lng) coordinate into a string like "9q8yy8yu" where similar prefixes = nearby locations. A geohash grid divides the world into cells. You can find nearby drivers by searching nearby geohash cells.
+
+Location Service:
+- Redis with GEOADD/GEOSEARCH commands — O(N+log(M)) for radius search
+- Driver location key: "drivers:{geohash_prefix}" → sorted set of driver IDs with score = timestamp
+- When rider requests trip: GEOSEARCH for drivers within 5km radius
+- Returns 10 nearest drivers sorted by distance
+
+Alternatively, Uber uses S2 Geometry (Google's library) for more accurate geospatial indexing:
+- S2 divides the globe into hierarchical cells at multiple precision levels
+- Level 12 cell ≈ 3.7km x 3.7km — good granularity for city-level matching
+- Search nearby cells at multiple levels to handle edge cases (rider near cell boundary)
+
+Driver Location Update Flow:
+1. Driver app sends GPS update every 4 seconds
+2. Location Gateway (WebSocket server) receives update
+3. Publishes to Kafka topic "driver-location-updates"
+4. Location Service consumes, updates Redis geospatial index
+5. If driver is on an active trip: publish to "trip-location" topic for rider's app
+
+Trip Request Flow:
+1. Rider taps "Request Ride" → Trip Service creates trip record (status: SEARCHING)
+2. Dispatch Service queries Location Service for nearby drivers (geohash search)
+3. Uber's ETA model (ML) calculates pickup time for each candidate driver
+4. Dispatch Service sends trip offer to best driver (lowest ETA, highest rating)
+5. Driver has 15 seconds to accept
+6. If no acceptance: try next best driver
+7. Driver accepts → trip status: ACCEPTED, driver location pushed to rider
+
+Trip State Machine:
+SEARCHING → ACCEPTED → ARRIVING → TRIP_STARTED → TRIP_COMPLETED → PAYMENT_PROCESSED
+
+Each state transition:
+- Persisted to PostgreSQL (ACID for financial records)
+- Published to Kafka for downstream services (notifications, billing, analytics)
+- Driver/rider app updated in real-time via WebSocket
+
+Surge Pricing:
+Surge = f(demand, supply) in each geohash zone
+
+1. Zone Service divides city into zones (geohash cells)
+2. Demand counter: count open trip requests per zone (sliding 5-min window)
+3. Supply counter: count available drivers per zone
+4. Surge multiplier = demand / supply, capped at configurable max
+5. If surge > 1.5x, notify riders before confirming
+
+Implementation:
+- Redis counters per zone, incremented/decremented on events
+- Surge recomputed every 30 seconds
+- Stored in Redis with TTL
+- Different surge zones can have different multipliers simultaneously
+
+ETA Prediction (Uber's ML system — "DeepETA"):
+- Takes: pickup location, dropoff location, current traffic, time of day, weather
+- Returns: estimated pickup time and trip duration
+- Initially used Google Maps API for routing
+- Now uses their own map data (acquired HERE Maps) + deep learning model
+- Model trained on billions of historical trips
+
+Driver App Architecture:
+- WebSocket connection to Uber's servers for real-time communication
+- GPS location sent every 4 seconds when driver is online
+- Trip offers received via WebSocket push
+- Turn-by-turn navigation via Uber's own maps (or Google Maps)
+- App works offline for turn-by-turn (map tiles cached locally)
+
+Payment System:
+- Fare calculated by Trip Service: base_fare + (time_rate × duration) + (distance_rate × distance) + surge
+- Payment Service integrates with Stripe/Braintree for card processing
+- Support for multiple payment methods: cards, UPI, cash (in some markets)
+- Driver payout: weekly batch processing via ACH (US) or local transfer
+- Receipt generated and emailed after trip completion
+
+Database Architecture:
+
+Trip Data:
+- PostgreSQL for active trips (ACID compliance for financial)
+- Cassandra for historical trip data (billions of rows, time-series queries)
+
+Driver/Rider Profiles:
+- MySQL for user data
+
+Location Data:
+- Redis (in-memory, fast geo-queries for active drivers)
+- S3 + Hive for historical location data (analytics, route optimization)
+
+Notifications:
+- FCM (Android) / APNs (iOS) for push notifications
+- Kafka event bus connects all services
+
+Maps and Routing:
+- Uber maps (custom tile server) for map display
+- OSRM or custom routing engine for route calculation
+- Road network stored in graph database or adjacency list (custom)
+
+Scaling Challenges:
+
+City Events (concerts, sports games):
+- Sudden demand spike in small area
+- Surge pricing activates automatically
+- Pre-position drivers near venue before event ends (predictive dispatch)
+
+Cross-City Trips:
+- Some trips span multiple geohash zones
+- Route pre-computed on trip start using routing service
+
+Driver Cold Start:
+- New city launch: no drivers → no riders → no drivers
+- Solution: hire fleet drivers initially, subsidize to bootstrap supply
+
+Consistency vs Availability:
+- Trip assignment: must be consistent — same driver can't be assigned to two riders
+- Use distributed lock (Redis SETNX) when assigning a driver
+- Lock expires after 15 seconds (driver accept window)
+
+Multi-Region:
+- Each city's matching runs in the nearest data center
+- Global services (user profiles, payments) replicated across regions
+
+Key Insight:
+Uber's architecture is fundamentally an event-driven system. Every state change (location update, trip request, driver accept, trip complete) is a Kafka event. This allows different services to react to events independently, making the system extensible and resilient.

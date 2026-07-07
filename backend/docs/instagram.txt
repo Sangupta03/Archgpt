@@ -1,0 +1,151 @@
+INSTAGRAM SYSTEM DESIGN
+
+Overview:
+Instagram is a photo and video sharing platform with 2 billion monthly active users. Core challenges: (1) store and serve billions of photos and videos globally at low latency, (2) generate a personalized feed for each user, (3) handle stories that expire after 24 hours, (4) support real-time interactions (likes, comments).
+
+Scale Numbers:
+- 2 billion monthly active users
+- 500 million daily active users
+- 100+ million photos and videos uploaded per day
+- 4.2 billion likes per day
+- 500 million stories viewed per day
+- Originally ran on 3 engineers when acquired by Facebook (2012) — scaled efficiently
+
+Core Features:
+1. Upload and view photos/videos
+2. Follow/following social graph
+3. News Feed (personalized timeline)
+4. Stories (disappear after 24 hours)
+5. Explore page (content discovery)
+6. Direct messages
+7. Comments, likes, saves
+
+Photo and Video Upload Pipeline:
+
+Upload Flow:
+1. User captures photo → compressed on device (HEIC/JPEG)
+2. Upload to Instagram's servers via CDN upload endpoint (Fastly)
+3. Server validates (file size, format, content policy via ML classifier)
+4. Original stored in S3 (or Facebook's equivalent: TAO/Haystack)
+5. Processing pipeline triggered:
+   - Generate multiple resolutions (150x150 thumbnail, 640px, 1080px)
+   - For videos: transcode to MP4 multiple bitrates
+   - Extract metadata (faces, objects, text in image using ML)
+   - Run NSFW classifier — auto-remove violating content
+6. All versions pushed to CDN (Facebook CDN, globally distributed)
+7. Post metadata stored in database
+8. Feed fanout begins (notify followers)
+
+Storage:
+- Photos: Haystack (Facebook's custom blob storage) — optimized for small files read many times
+- General blob fallback: S3
+- CDN: Facebook's own CDN (formerly Akamai) for global distribution
+
+Post Metadata:
+- PostgreSQL for posts, comments, likes (Instagram started on PostgreSQL)
+- Migrated to Cassandra for parts of the system as scale grew
+- Post table: post_id, user_id, image_url, caption, timestamp, location
+
+News Feed Architecture (The Core Problem):
+
+When you open Instagram, you see a personalized feed. Two models:
+
+Pull Model (Fan-out on Read):
+- On feed load, fetch posts from all followed accounts, merge, rank
+- Problem: if following 500 accounts, need 500 queries → slow
+
+Push Model (Fan-out on Write — Pre-compute):
+- When user A posts, push to all followers' feed caches
+- Feed read is instant — just read from cache
+- Problem: celebrity with 100M followers → 100M cache writes per post
+
+Instagram uses a hybrid similar to Twitter:
+- Regular users: push model — post is written to followers' feed caches
+- Celebrities (verified, high follower count): pull model — fetched at read time
+- Feed is a merge of: pre-computed feed + real-time celebrity posts
+
+Feed Ranking:
+Instagram does NOT show posts in chronological order. They rank by:
+- Relationship: how often you interact with this person
+- Interest: how likely you are to engage with this type of content (based on history)
+- Recency: newer posts preferred
+- Frequency: how often you open Instagram
+
+This is a ML model trained on engagement signals. Updated continuously.
+
+Feed Generation:
+1. Fetch candidate posts from pre-computed feed cache (Redis)
+2. Add celebrity posts from real-time pull
+3. Feed ranking model scores and sorts all candidates
+4. Apply filters (blocked users, muted accounts)
+5. Return paginated results
+
+Social Graph:
+- Who follows whom is critical for feed and discovery
+- Stored in separate Social Graph Service
+- MySQL or specialized graph store
+- Follow table: follower_id, followed_id, timestamp
+- Indexed in both directions for fast lookups
+- Cached in Redis for popular accounts
+
+Stories Architecture:
+
+Stories are different from posts:
+- Expire after 24 hours
+- Shown in a separate horizontal strip at top
+- No public like counts (more casual)
+- Different viewing analytics (who viewed my story)
+
+Key design differences:
+1. TTL-based deletion: Cassandra or Redis with TTL set to 24h
+2. Story views stored as a separate set per story: story_id → set of viewer_ids
+3. View count can be eventually consistent — use Redis INCR counter
+4. Story ordering: show unseen stories first, then seen stories (sorted by recency)
+5. Story expiry: batch job runs hourly to delete expired stories + their S3 assets
+
+Direct Messages:
+- Instagram Direct uses similar architecture to WhatsApp (which Facebook also owns)
+- Messages stored in Cassandra: partition key = conversation_id, sort key = timestamp
+- Delivered via WebSocket for real-time users
+- Stored and delivered later if recipient is offline (push notification)
+- End-to-end encryption being rolled out (via Signal Protocol)
+
+Explore Page (Content Discovery):
+- ML model that surfaces content you haven't seen from accounts you don't follow
+- Interest graph: what topics/aesthetics are you interested in based on behavior
+- Content graph: what content is similar to what you've engaged with
+- Trending: what's going viral right now in your network
+- Refreshed frequently, personalized per user
+
+Notification System:
+- Like, comment, follow, story view → triggers notification
+- Kafka event bus: all interaction events flow through Kafka
+- Notification Service fans out to: APNs (iOS), FCM (Android), email
+- Notification batching: if 100 people like in 5 minutes, send one notification "100 people liked your photo"
+
+Database Summary:
+- PostgreSQL/MySQL: user profiles, posts metadata, comments
+- Cassandra: feed caches, direct messages, stories, activity logs
+- Redis: feed pre-computation cache, story view counts, rate limiting, session storage
+- Elasticsearch: user search, hashtag search, location search
+- S3 / Haystack: photo and video blobs
+- CDN (Facebook): global content delivery
+
+Scaling Journey (Instagram's real history):
+- 2010 launch: 3 engineers, AWS, PostgreSQL, Redis, Django
+- 2012 (Facebook acquisition): 40M users, 13 employees — extremely efficient engineering
+- Key early decisions: Django + PostgreSQL + Redis was simple and worked until 500M users
+- They added Cassandra and custom infra later as Facebook's infrastructure took over
+- Lesson: start simple, scale later. Over-engineering early is wasteful.
+
+Key Architecture Decisions:
+1. Sharded PostgreSQL: Instagram ran on PostgreSQL for years — horizontally sharded by user_id. Proof that SQL can scale with proper sharding strategy.
+2. Django: Python web framework — easy to move fast, hire engineers
+3. Redis for everything short-term: feed caches, sessions, rate limits, counters
+4. Async everything: uploads, notifications, feed fanout all async via message queues
+
+Reels (Short-form video, TikTok competitor):
+- Same infrastructure as stories + posts but video-first
+- Recommendation algorithm emphasizes content quality over social graph
+- Content-based: if you're not following someone but the video is good, show it
+- This is different from feed which is social-graph-first

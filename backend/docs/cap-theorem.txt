@@ -1,0 +1,149 @@
+CAP THEOREM AND DISTRIBUTED SYSTEMS CONSISTENCY
+
+Overview:
+The CAP theorem states that a distributed database system can only guarantee two of three properties simultaneously: Consistency, Availability, and Partition Tolerance. Understanding CAP is fundamental to system design — every database and architectural decision involves these trade-offs.
+
+The Three Properties:
+
+C — Consistency:
+Every read returns the most recent write (or an error). If you write a value on node 1 and immediately read it from node 2, you get the updated value. This is "strong consistency."
+Example: bank account balance — you must see the current balance, not a stale one.
+
+A — Availability:
+Every request receives a response (not an error), though it might not be the most recent data.
+The system keeps responding even if some nodes are down.
+Example: Netflix shows you recommendations even if their recommendation engine is partially down.
+
+P — Partition Tolerance:
+The system continues operating even if network messages are lost or delayed between nodes.
+A "partition" = network split where nodes can't communicate.
+In reality: you cannot opt out of P. Networks fail. Partitions happen. You MUST handle partitions.
+
+The Real Choice — CP or AP:
+
+Since P is mandatory, the real choice is: when a partition occurs, do you sacrifice C or A?
+
+CP (Consistency + Partition Tolerance):
+- When partition happens: refuse to answer rather than return stale data
+- Some requests get errors during partition
+- But when you respond, you're always correct
+- Examples: ZooKeeper, HBase, Google Spanner, MongoDB (with journaling), traditional relational databases
+
+AP (Availability + Partition Tolerance):
+- When partition happens: respond with possibly stale data
+- System always responds, never returns error
+- Data might be outdated temporarily
+- Examples: Cassandra, DynamoDB, CouchDB, DNS
+
+Neither CP nor AP fully — just P:
+- Technically, traditional SQL in a single datacenter: gives up P (can't run across partitions)
+- Rarely applicable in modern distributed systems
+
+Consistency Models (Spectrum):
+
+Strong Consistency (Linearizability):
+- Every read sees the most recent write
+- As if there's only one copy of data
+- Slowest — requires synchronization
+- Example: Google Spanner uses atomic clocks to achieve this globally
+
+Sequential Consistency:
+- All nodes see operations in same order, but might lag
+- Operations appear instantaneous but may not be truly real-time
+
+Causal Consistency:
+- Causally related operations are seen in order
+- "If you see my reply, you must have seen my original post"
+- Used by some distributed databases
+
+Eventual Consistency:
+- If no new updates, all nodes will eventually have the same value
+- Queries may return stale data temporarily
+- Highest availability, used by: DynamoDB, Cassandra, S3
+- Most common choice for high-scale systems
+
+Read-Your-Own-Writes:
+- You always see your own updates (even if others don't yet)
+- Instagram: after you post a photo, you see it even if others see it slightly later
+
+Monotonic Reads:
+- If you read a value, subsequent reads won't return older values
+- You might read version 5, then get version 5 or higher — never version 4 again
+
+Real Database CAP Positions:
+
+CP Systems:
+- HBase: stops accepting writes during partition
+- ZooKeeper: leader election, quorum required for writes
+- Redis (cluster mode with consistency settings)
+- Google Spanner: technically CA+P using atomic clocks — bends CAP by minimizing partition likelihood
+
+AP Systems:
+- Cassandra: ring architecture, always accepts writes, eventually consistent
+- DynamoDB: eventual consistency by default (strong consistency optional)
+- CouchDB: all nodes accept reads/writes, sync later
+- DNS: highly available, propagation delay = eventual consistency
+
+PACELC Theorem (More Nuanced than CAP):
+CAP only addresses behavior during partitions. PACELC adds: even when there's no partition (network is fine), there's a trade-off between latency and consistency.
+
+PACELC: If Partition, choose A or C; Else (no partition), choose L (latency) or C (consistency)
+
+DynamoDB: PA/EL — available during partition, low latency when not partitioned
+Google Spanner: PC/EC — consistent during partition (quorum), consistent when not partitioned (but higher latency)
+
+Consistency in Practice:
+
+Amazon DynamoDB example:
+- Default: eventually consistent reads (faster, cheaper)
+- Optional: strongly consistent reads (slower, 2x cost)
+- When to use strongly consistent: "after I add item to cart, it must show up on my cart page"
+
+Cassandra example:
+- Tunable consistency per query: ONE, QUORUM, ALL
+- ONE: fastest, least consistent (one replica must respond)
+- QUORUM: (N/2)+1 replicas must respond — balances speed and consistency
+- ALL: all replicas must respond — slowest, most consistent
+- Write QUORUM + Read QUORUM > N: guaranteed to see most recent write
+
+Conflict Resolution in AP Systems:
+
+When two nodes accept conflicting writes during a partition:
+1. Last Write Wins (LWW): higher timestamp wins — simple but may lose data
+2. Vector Clocks: track causal history, detect conflicts that need merging
+3. CRDTs (Conflict-free Replicated Data Types): data structures that automatically merge
+4. Application-level merge: expose conflict to application to resolve (Dynamo original approach)
+
+Examples in System Design:
+
+Bank account (strong consistency needed):
+- Use CP system (PostgreSQL, MySQL, Spanner)
+- Never show wrong balance
+- Better to get error than wrong data
+
+Social media "likes" count (eventual consistency okay):
+- Use AP system (Cassandra, DynamoDB)
+- Showing "1,234 likes" vs "1,235 likes" is fine
+- Availability more important than exact count
+
+Shopping cart (client-side eventual consistency):
+- Amazon uses AP + CRDTs for shopping cart
+- If two devices add items simultaneously during partition, items are merged (union)
+- User never loses an item they added
+- Better to show extra item than lose one
+
+Distributed Transactions — 2 Phase Commit (2PC):
+When a transaction spans multiple nodes and requires atomicity:
+
+Phase 1 (Prepare): Coordinator asks all participants "are you ready to commit?"
+Phase 2 (Commit): If all say yes, coordinator sends commit. If any say no, send rollback.
+
+Problem: if coordinator crashes between phases, participants are stuck waiting (blocked).
+Alternative: 3PC (three-phase commit) — reduces blocking but still has issues.
+Better alternative: Saga pattern — sequence of local transactions with compensating transactions for rollback.
+
+BASE vs ACID:
+ACID (traditional SQL): Atomicity, Consistency, Isolation, Durability — strong guarantees
+BASE (NoSQL/distributed): Basically Available, Soft state, Eventually consistent — weaker guarantees, more scalable
+
+Most modern large-scale systems are BASE for the majority of data, ACID for critical financial/transactional data.

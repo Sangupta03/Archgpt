@@ -1,0 +1,210 @@
+MICROSERVICES ARCHITECTURE
+
+Overview:
+Microservices is an architectural pattern where an application is built as a collection of small, independent services. Each service runs in its own process, communicates over APIs, and is independently deployable. Contrast with monolith: one codebase, one deployable unit, one database.
+
+Monolith vs Microservices:
+
+Monolith:
+- Single codebase: all features in one application
+- Single deployment: deploy everything together
+- Single database: all features share one database
+- Simple to develop initially
+- Hard to scale, hard to maintain at large size
+- One bug can take down entire application
+
+Microservices:
+- Multiple codebases: each service owns its feature
+- Independent deployment: deploy User Service without touching Order Service
+- Separate databases: each service owns its data
+- Complex to develop (distributed systems problems)
+- Easy to scale: scale only the services that need it
+- Failure isolation: Order Service failure doesn't affect User Service
+
+When to use Microservices:
+- Team is large (multiple teams working on same codebase causes conflicts)
+- Different components need to scale independently
+- Different components have different tech requirements
+- Already have a working monolith that needs to grow
+
+When NOT to use Microservices:
+- Early stage startup (monolith first, microservices when you have real scale problems)
+- Small team (distributed systems overhead is too high)
+- Uncertain requirements (microservice boundaries hard to change later)
+
+Core Microservices Concepts:
+
+Service Boundaries (Domain-Driven Design):
+Each microservice should own one "bounded context" — a coherent piece of business logic.
+
+Example (e-commerce):
+- User Service: registration, authentication, profiles
+- Product Service: catalog, inventory, search
+- Order Service: cart, checkout, order lifecycle
+- Payment Service: payment processing, refunds
+- Notification Service: emails, SMS, push
+
+Rule: If you need to change two services to implement one feature, your boundaries are wrong.
+
+Inter-Service Communication:
+
+1. Synchronous (Request-Response):
+- REST (HTTP/JSON): simple, widely understood, request-response
+- gRPC (Protocol Buffers over HTTP/2): faster, type-safe, good for internal services
+- Use when: you need an immediate response ("is this user authorized?")
+- Problem: tight coupling — if Service B is down, Service A fails too
+
+2. Asynchronous (Event-Driven):
+- Message queues: Kafka, RabbitMQ, SQS
+- Service A publishes event, Service B consumes when ready
+- Use when: you don't need immediate response ("send welcome email after registration")
+- Benefit: decoupling — if Email Service is down, events queue up, processed later
+- Benefit: multiple consumers — register event triggers email, analytics, recommendation
+
+Service Discovery:
+Services need to find each other. In microservices, addresses are dynamic (services scale up/down).
+
+Client-side discovery (Eureka pattern — Netflix):
+- Each service registers itself in Service Registry on startup
+- When Service A needs to call Service B, it queries registry for B's current addresses
+- A picks one address (load balancing) and makes request
+- Netflix Eureka, Consul, etcd
+
+Server-side discovery (Load Balancer pattern):
+- Services register with load balancer
+- Service A always calls a fixed address (load balancer)
+- Load balancer routes to a healthy instance of Service B
+- AWS ALB, NGINX, Istio
+
+API Gateway:
+Single entry point for all client requests. Handles:
+- Authentication and authorization (one place, not every service)
+- Rate limiting and throttling
+- Request routing to appropriate microservice
+- Request/response transformation
+- SSL termination
+- Caching
+- Logging and monitoring
+
+Examples: AWS API Gateway, Kong, NGINX, Netflix Zuul, Traefik
+
+Circuit Breaker Pattern:
+Problem: if Service B is slow/down, Service A keeps waiting → threads pile up → A crashes
+
+Circuit Breaker wraps calls to B with a state machine:
+- CLOSED (normal): requests pass through to B
+- OPEN (B is failing): immediately return error without calling B (fail fast)
+- HALF-OPEN (testing): after timeout, let a few requests through to test if B recovered
+
+Netflix Hystrix was the original implementation. Now: Resilience4j.
+Result: cascading failures prevented. A continues serving (degraded) even when B is down.
+
+Bulkhead Pattern:
+Isolate resources for different services. Thread pools partitioned per downstream service.
+If calls to Service B exhaust their thread pool, Service A's calls to Service C are unaffected.
+Named after ship bulkheads that prevent flooding from spreading.
+
+Service Mesh:
+Infrastructure layer for service-to-service communication.
+Handles: mutual TLS, load balancing, circuit breaking, observability — without changing application code.
+Sidecar proxy (Envoy) deployed alongside each service, intercepts all traffic.
+Control plane: Istio, Linkerd.
+
+Data Management in Microservices:
+
+Each service owns its database — no sharing!
+
+Why? If Order Service and User Service share a database:
+- Schema changes in one affect the other
+- One service can break the other's data
+- They become coupled — defeats purpose of microservices
+
+Database per Service means:
+- User Service: PostgreSQL
+- Product Service: MongoDB (flexible schema for varied products)
+- Order Service: PostgreSQL (ACID for transactions)
+- Session Service: Redis
+- Search Service: Elasticsearch
+
+But this creates challenges:
+- Queries spanning multiple services? Can't do SQL joins.
+- Solution: maintain a separate read model (materialized view) updated via events
+
+Saga Pattern (Distributed Transactions):
+When a business operation spans multiple services and must be atomic:
+
+Example: Place order = deduct inventory + charge payment + create order
+If payment fails: must undo inventory deduction
+
+Saga: sequence of local transactions, each publishing an event
+- OrderService: create order → publish "order_created"
+- InventoryService: reserve stock → publish "stock_reserved" (or "out_of_stock" → compensate)
+- PaymentService: charge card → publish "payment_charged" (or "payment_failed" → compensate)
+- If any step fails: previous services execute compensating transactions (undo)
+
+CQRS (Command Query Responsibility Segregation):
+Separate read model from write model.
+- Write: accept commands (createOrder), update primary database
+- Read: query side, separate database optimized for read queries
+- Events from write side update read models
+- Benefit: read model can be denormalized for fast queries
+- Used widely: event-sourcing architectures, high-read-volume services
+
+Observability (Critical in Microservices):
+
+Distributed Tracing:
+- A user request may touch 10+ services
+- How do you debug a slow request?
+- Assign a trace_id to each request, pass through all services
+- Each service logs spans (start time, end time, service name) with trace_id
+- Tools: Jaeger, Zipkin, AWS X-Ray, Datadog APM
+- Visualize: see exactly which service was slow in a "waterfall" view
+
+Centralized Logging:
+- Each service writes structured logs (JSON)
+- Log aggregation: ELK Stack (Elasticsearch + Logstash + Kibana) or Splunk
+- Search logs across all services using trace_id or user_id
+
+Metrics:
+- Each service exposes metrics: request count, error rate, latency, queue depth
+- Prometheus collects metrics, Grafana visualizes
+- Alerts: PagerDuty notifies on-call when error rate spikes
+
+Health Checks:
+- Each service exposes /health endpoint
+- Returns: HEALTHY / DEGRADED / UNHEALTHY
+- Kubernetes/load balancer routes traffic away from unhealthy instances
+
+Deployment:
+
+Containers (Docker):
+- Each microservice packaged as a Docker image
+- Consistent environment: same behavior dev, staging, production
+- Lightweight: start in seconds
+
+Container Orchestration (Kubernetes):
+- Manages deployment, scaling, networking of containers
+- Auto-restarts crashed services
+- Scales services based on CPU/memory/custom metrics
+- Rolling deployments: update without downtime
+- Service discovery via DNS within cluster
+
+Real Examples:
+
+Netflix (700+ microservices):
+- Zuul API Gateway
+- Eureka service discovery
+- Hystrix circuit breakers
+- Ribbon load balancing
+- All open-sourced as "Netflix OSS" — huge contribution to microservices ecosystem
+
+Uber (2000+ microservices):
+- Started as monolith
+- Migrated to microservices when scale demanded it
+- Each city operation is a "cell" — geographically isolated set of services
+
+Trade-offs Summary:
+Microservices give you: independent deployment, independent scaling, technology flexibility, fault isolation
+Microservices cost you: distributed systems complexity, network latency, operational overhead, harder debugging
+
+Martin Fowler's advice: "Don't start with microservices. Start with a monolith, then migrate to microservices as you learn where the boundaries are."

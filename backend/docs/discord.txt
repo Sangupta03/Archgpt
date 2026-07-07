@@ -1,0 +1,149 @@
+DISCORD SYSTEM DESIGN
+
+Overview:
+Discord is a real-time communication platform primarily for gaming communities, now broadly used. Core features: text channels, voice calls, video calls, and servers (communities). Key challenges: (1) deliver messages in real-time to potentially millions of server members, (2) maintain low-latency voice/video calls, (3) store trillions of messages efficiently.
+
+Scale Numbers:
+- 500+ million registered users
+- 19+ million active servers (guilds)
+- 4 billion messages sent per day
+- Peak: 8.8 million concurrent voice/video users
+- Some servers have 500,000+ members (e.g., official game servers)
+
+Core Features:
+1. Servers (guilds) with channels (text and voice)
+2. Real-time text messaging in channels
+3. Direct messages (DMs) between users
+4. Voice channels (persistent, join anytime)
+5. Video calls
+6. Screen sharing
+
+The Core Problem — Real-Time Message Delivery:
+
+When a message is sent in a server with 100,000 members, it must be delivered in real-time to all active members. This is a massive fanout problem.
+
+Solution: Gateway Servers + Presence
+
+Gateway Servers:
+- Each user maintains a persistent WebSocket connection to a Gateway server
+- Gateway servers are stateful: they know which users are connected to them
+- User A sends message → Gateway receives → routes to Message Service → fanout to all relevant Gateway servers → those servers push to their connected users
+
+Presence Service:
+- Tracks which users are online and which Gateway they're connected to
+- Stored in Redis: user_id → {gateway_id, last_seen}
+- Updated when user connects/disconnects
+- Used for: online indicators, routing messages to correct gateway
+
+Message Delivery Flow:
+1. User sends message via WebSocket to Gateway
+2. Gateway forwards to Message Service via internal API
+3. Message Service stores in Cassandra (persistent)
+4. Message Service queries: which users are in this server and currently online?
+5. Dispatch Service looks up each online user's Gateway from Presence Service
+6. Sends message to appropriate Gateways
+7. Each Gateway pushes message to connected user via WebSocket
+
+Message Storage:
+- Cassandra (Discord's primary choice for messages)
+- Partition key: channel_id (all messages in same channel on same partition)
+- Clustering key: message_id (time-ordered using Snowflake IDs)
+- This allows efficient queries: "get last 50 messages in channel X" = single partition scan
+- Discord stores trillions of messages — Cassandra handles this at scale
+
+Why Cassandra?
+- Write-heavy: billions of messages/day, Cassandra's LSM-tree optimized for writes
+- Time-series: messages naturally ordered by time, fits Cassandra's clustering key model
+- Scale: horizontally scalable, no single point of failure
+- Discord's 2023 migration: moved some data from Cassandra to ScyllaDB (Cassandra-compatible, faster)
+
+Discord and ScyllaDB (2023):
+- Discord migrated message history from Cassandra to ScyllaDB
+- ScyllaDB: Cassandra-compatible but written in C++ (vs Java) — lower latency, better hardware utilization
+- Result: 99th percentile latency dropped from 40ms to 15ms
+- Lesson: database choice matters at extreme scale
+
+Server (Guild) Architecture:
+
+A Discord "server" is not a physical server — it's a collection of channels and members.
+
+Guild metadata stored in PostgreSQL:
+- guild: guild_id, name, owner_id, icon, member_count
+- channel: channel_id, guild_id, name, type (text/voice), position
+- member: user_id, guild_id, nickname, roles, joined_at
+
+When a message is sent in a channel, the system needs the list of members in that guild who are online. Caching this list in Redis is critical for large servers.
+
+Sharding Discord Client State (their actual architecture):
+- Discord splits guilds across "guild shards" on the backend
+- Each Gateway shard handles a subset of guilds
+- User connects to specific shard based on their guild membership
+- This distributes load — no single Gateway handles all messages for a 500k member server
+
+Voice Architecture:
+
+Voice/video is fundamentally different from text — requires ultra-low latency (<100ms end-to-end), continuous data stream.
+
+Protocol: WebRTC (industry standard for browser-based real-time communication)
+- Uses UDP instead of TCP (TCP's retransmissions cause audio glitches)
+- Discord's custom backend: Voice server pools using WebRTC Selective Forwarding Unit (SFU)
+
+Voice Flow:
+1. User joins voice channel → assigned to a Voice Server by routing service
+2. Voice Server establishes WebRTC connection with user's client
+3. Other users in same channel also connect to same Voice Server
+4. Voice Server receives audio from each user, selectively forwards to others
+5. SFU model: server routes streams without mixing (clients decode multiple streams)
+   - More CPU on clients, less on server
+   - Allows each listener to control individual speaker volume
+
+Voice Server Selection:
+- Route users to nearest Voice Server (lowest latency)
+- Measured by UDP ping time to candidate servers
+- Failover: if Voice Server goes down, clients reconnect to another
+
+Video and Screen Share:
+- Same Voice Server infrastructure
+- Video is just another media track in WebRTC
+- Screen sharing at 720p-1080p at 30fps
+- Adaptive bitrate: reduce quality if network is poor
+
+Notifications:
+- Push notifications for mentions, DMs, reactions
+- Mobile: APNs (iOS), FCM (Android)
+- Desktop: native OS notifications
+- Notification batching: if server is very active, batch into "X new messages in #channel"
+
+Rate Limiting:
+- API rate limits per user token: 50 requests/second for most endpoints
+- Message rate limit: 5 messages/5 seconds per channel per user
+- Prevents spam bots
+- Implemented at API Gateway with Redis sliding window counters
+
+Search:
+- Message search uses Elasticsearch
+- Index: server_id, channel_id, user_id, content, timestamp
+- Search scope: within a server, within a channel, from a specific user
+- Full-text search with filters
+
+Handling Large Servers (500k+ members):
+Challenge: message in 500k member server → potentially 50k concurrent active users to notify
+
+Solutions:
+1. Don't notify everyone — only members who have the server open (foreground clients)
+2. Lazy notification for background clients: push notification only for @mentions
+3. Gateway sharding: load distributed across many Gateway servers
+4. Presence aggregation: instead of per-user presence, track per-guild-shard presence
+
+Eventual Consistency:
+- Some features are eventually consistent:
+  - Online member counts (may lag by a few seconds)
+  - Message read status (marked as read eventually propagates)
+  - Reaction counts (may show slightly stale count briefly)
+- This is acceptable — users don't notice 1-2 second staleness
+
+Key Technical Decisions:
+1. WebSocket everywhere: persistent connections mean real-time feel without polling
+2. Cassandra/ScyllaDB for messages: proves that NoSQL is right tool for this workload
+3. Elixir for Gateway servers: Erlang/Elixir's BEAM VM handles millions of concurrent connections efficiently (lightweight processes, excellent concurrency model)
+4. WebRTC for voice: industry standard, browser-native, no plugins needed

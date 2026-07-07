@@ -1,0 +1,169 @@
+APACHE KAFKA — SYSTEM DESIGN DEEP DIVE
+
+Overview:
+Kafka is a distributed event streaming platform. Think of it as a highly durable, infinitely scalable message queue where producers write events and consumers read them. It's used in almost every large-scale system: Uber uses it for location updates, LinkedIn (who built Kafka) uses it for activity feeds, Netflix uses it for analytics pipeline.
+
+Core Concepts:
+
+Event/Message: A piece of data — "user_id: 123 placed order_id: 456 at timestamp: 1234567890"
+Topic: A named log of events. Like a table in a database. E.g., "order-events" topic
+Producer: Writes events to a topic
+Consumer: Reads events from a topic
+Broker: A Kafka server that stores events
+Cluster: Multiple brokers working together
+Partition: A topic is split into partitions for parallelism
+Offset: A sequential ID for each event in a partition (like array index)
+Consumer Group: Multiple consumers sharing the work of reading a topic
+
+Why Kafka? (vs Traditional Message Queues like RabbitMQ):
+
+Traditional queue: event consumed → deleted from queue
+Kafka: events retained for configurable period (default 7 days) → multiple consumers can independently read the same events
+
+This is transformative:
+- Add a new consumer without affecting existing ones
+- Replay events from past (debugging, backfilling new systems)
+- Decouple producers from consumers completely
+
+Kafka vs RabbitMQ:
+- RabbitMQ: message broker, push model, messages deleted after consumption, good for task queues
+- Kafka: event log, pull model, messages retained, good for event streaming and data pipelines
+- Choose Kafka when: multiple consumers need the same events, need event replay, high throughput
+- Choose RabbitMQ when: complex routing, guaranteed message ordering per consumer, task-queue pattern
+
+Architecture Deep Dive:
+
+Topics and Partitions:
+- Topic "order-events" might have 12 partitions
+- Each partition is an ordered, immutable log of events
+- Partitions distributed across brokers (partition 0 on broker 1, partition 1 on broker 2, etc.)
+- Events within a partition are strictly ordered
+- Events across partitions have no guaranteed order
+
+Partition Key:
+- Producer specifies a key per event: order.send(key="user_123", value=event)
+- All events with same key go to same partition
+- Guarantees ordering for events with same key (e.g., all events for user_123 are ordered)
+- Without key: round-robin across partitions
+
+Replication:
+- Each partition has a leader and N replicas on different brokers (N = replication factor)
+- Default replication factor: 3 (1 leader + 2 replicas)
+- All reads/writes go to leader
+- Replicas passively sync from leader
+- If leader fails, a replica is automatically elected as new leader (ZooKeeper or KRaft consensus)
+- Durability: Kafka can acknowledge write only after all replicas confirm receipt (acks=all)
+
+Consumer Groups:
+- Multiple consumers in a group share partitions
+- Each partition assigned to exactly one consumer in a group
+- 12 partitions + 6 consumers = 2 partitions per consumer (parallelism)
+- 12 partitions + 12 consumers = 1 partition per consumer (max parallelism)
+- 12 partitions + 15 consumers = 3 consumers idle (can't have more consumers than partitions)
+- Different consumer groups independently track their own offsets — all see all events
+
+Offset Management:
+- Kafka tracks how far each consumer group has read (committed offset)
+- Consumer commits offset after processing: "I've processed up to offset 1234"
+- If consumer crashes, resumes from last committed offset
+- At-least-once delivery: events may be reprocessed after failure (idempotent consumers needed)
+
+Storage:
+- Events stored in segment files on disk (not in memory)
+- Sequential writes — very fast (disk sequential write ≈ network speed)
+- OS page cache: recently written data stays in RAM naturally
+- Retention: delete events older than 7 days (time-based) or 1TB (size-based)
+- Log compaction: keep only latest event per key (useful for change data capture)
+
+Producer Configuration:
+- acks=0: fire and forget (fastest, may lose data)
+- acks=1: wait for leader acknowledgement (may lose data if leader fails before replication)
+- acks=all: wait for all replicas (slowest, no data loss)
+- batch.size: batch events before sending (better throughput)
+- linger.ms: wait up to X ms to fill a batch before sending
+
+Exactly-Once Semantics:
+- At-most-once: may lose messages
+- At-least-once: may duplicate messages (most common, consumer must be idempotent)
+- Exactly-once: hardest — Kafka supports this with idempotent producers + transactions
+
+Throughput:
+- Kafka can sustain millions of messages/second per broker
+- Key optimizations:
+  1. Sequential disk writes (much faster than random writes)
+  2. Zero-copy: kernel sends data directly from disk to network socket (sendfile syscall)
+  3. Batching: group multiple messages into one network call
+  4. Compression: gzip, snappy, lz4 per batch
+  5. Pull model: consumers pull at their own pace — no back-pressure issues
+
+Common Use Cases:
+
+1. Activity Tracking (LinkedIn's original use case):
+- Every user action (page view, click, search) → Kafka event
+- Multiple consumers: analytics pipeline, recommendation engine, fraud detection
+- All read same events independently
+
+2. Log Aggregation:
+- All microservices publish logs to Kafka
+- Log processing service (ELK stack) consumes and indexes
+- Replaces syslog, allows replay of logs for debugging
+
+3. Event Sourcing:
+- All state changes published as events to Kafka
+- System state = replay of all events
+- Enables audit trail, time travel, and rebuild of any derived view
+
+4. Stream Processing:
+- Kafka + Kafka Streams or Apache Flink
+- Real-time fraud detection: "3 transactions from different countries in 5 minutes"
+- Real-time analytics dashboards
+- Real-time ETL (transform and load data)
+
+5. Change Data Capture (CDC):
+- Database changes (inserts/updates/deletes) published to Kafka
+- Debezium: reads MySQL/PostgreSQL WAL (write-ahead log) and publishes to Kafka
+- Use case: keep Elasticsearch in sync with primary database
+
+6. Microservices Communication:
+- Service A publishes event to Kafka → Service B consumes
+- Decoupled: A doesn't know about B
+- Resilient: if B is down, events accumulate in Kafka, processed when B comes back
+
+Kafka in System Design Interviews:
+
+When to use Kafka:
+- High throughput event streaming (>10K events/second)
+- Multiple consumers need the same events
+- Event replay capability needed
+- Decoupling producers from consumers
+- Building real-time data pipelines
+
+Example: Uber uses Kafka for:
+- Driver location updates (5M drivers × every 4s = 1.25M events/second)
+- Trip events (order placed, accepted, started, completed)
+- Surge pricing computation (reads location events, computes zones)
+- Analytics pipeline
+
+Kafka Streams (built-in stream processing):
+- Library for building stream processing applications
+- Stateful: can maintain state across events (e.g., count events per user per minute)
+- Exactly-once processing semantics
+- Scales automatically with Kafka partitions
+
+Comparison with SQS (Amazon Simple Queue Service):
+- SQS: managed, simpler, max 14-day retention, 1 consumer per message
+- Kafka: self-managed (or Confluent Cloud for managed), long retention, multiple consumers
+- Choose SQS for simple task queues in AWS
+- Choose Kafka for complex event streaming with multiple consumers
+
+ZooKeeper vs KRaft:
+- Old Kafka: used ZooKeeper for leader election, config, metadata
+- New Kafka (2.8+): KRaft mode — built-in consensus, no ZooKeeper dependency
+- KRaft: simpler operation, faster leader election, scales to millions of partitions
+
+Key Numbers to Remember:
+- Kafka throughput: 1-2 million messages/second per broker
+- Typical replication factor: 3
+- Default retention: 7 days
+- Max message size: 1MB default (configurable to larger)
+- Partition count: more partitions = more parallelism but more overhead
