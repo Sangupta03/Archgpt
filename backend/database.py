@@ -51,7 +51,18 @@ def create_tables():
         )
     """)
 
-    conn.commit()   # save changes
+    # thumbs up / down ratings on AI messages
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            id            SERIAL PRIMARY KEY,
+            session_id    INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+            message_index INTEGER NOT NULL,
+            rating        SMALLINT NOT NULL,  -- 1 = thumbs up, -1 = thumbs down
+            created_at    TIMESTAMP DEFAULT NOW()
+        )
+    """)
+
+    conn.commit()
     cur.close()
     conn.close()
     print("✅ Database tables ready")
@@ -154,3 +165,20 @@ def delete_session(session_id: int, user_id: int):
     conn.commit()
     cur.close()
     conn.close()
+
+# ── Feedback ──────────────────────────────────────────────
+
+def save_feedback(session_id, message_index: int, rating: int):
+    """Store a thumbs up (1) or down (-1) for an AI message."""
+    conn = get_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        INSERT INTO feedback (session_id, message_index, rating)
+        VALUES (%s, %s, %s)
+        RETURNING id
+    """, (session_id, message_index, rating))
+    fid = cur.fetchone()["id"]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return fid

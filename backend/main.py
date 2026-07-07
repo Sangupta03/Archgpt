@@ -1,9 +1,9 @@
 # ── Imports ──────────────────────────────────────────────
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from auth import get_google_auth_url, exchange_code_for_user, create_jwt, get_current_user_id
-from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session
+from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session, save_feedback
 
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-from retriever import retrieve
+from retriever import retrieve_with_sources
 import os, json
 
 # ── Load env ──────────────────────────────────────────────
@@ -55,7 +55,7 @@ How it handles 1M → 10M → 100M users. Be specific.
 What you're optimizing for. What you're sacrificing.
 
 ## Architecture Diagram
-After your explanation, output a Mermaid diagram. Keep it SIMPLE — max 12 nodes, no subgraphs, no special characters in node labels. Use this format exactly:
+After your explanation, output a Mermaid diagram showing a clean layered architecture. Use exactly this format:
 
 ```mermaid
 graph TD
@@ -65,12 +65,18 @@ graph TD
     C --> E[Cache Redis]
 ```
 
-Rules for the diagram:
-- Maximum 12 nodes
+Rules — follow ALL of them, no exceptions:
+- Maximum 10 nodes total
 - NO subgraph blocks
-- NO parentheses inside node labels
-- Only use --> arrows
-- Keep node labels short, under 4 words
+- NO parentheses or special characters in node labels
+- Only --> arrows
+- Node labels: 2-3 words MAX (e.g. "Order Service", "Redis Cache", "Kafka Queue")
+- ONLY architecture components as nodes — services, databases, caches, queues, load balancers, CDN
+- ABSOLUTELY NO text annotations, trade-off notes, sentences, explanations, or any prose as nodes
+- Never add nodes like "Sacrificing: ...", "Note: ...", or any descriptive text — those belong in your written response, not the diagram
+- Show LAYERS top to bottom: Client → Load Balancer → API Gateway → 3-4 key Services → their primary Data Stores
+- Each service connects to AT MOST 1-2 data stores (its own primary ones only)
+- Result must be a clean readable tree with no crossing lines
 
 Use Indian startup examples when relevant."""
 
@@ -81,6 +87,7 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[Message]
+    model: str = "gemini-2.5-flash-lite"  # user can pick flash or pro
 
 # ── Single /chat endpoint — RAG + Gemini + streaming ──────
 @app.post("/chat")
@@ -112,8 +119,8 @@ async def chat(request: ChatRequest):
     # Intent 3: Pure concept question (no diagram needed)
     is_concept = any(w in lower for w in ["what is", "explain", "why does", "how does", "what are"])
 
-    # Always retrieve relevant docs
-    context = retrieve(latest)
+    # Always retrieve relevant docs + capture which sources were used
+    context, sources = retrieve_with_sources(latest)
 
     if is_compare:
         augmented_prompt = f"""The user wants to COMPARE two systems.
@@ -121,7 +128,19 @@ Provide a structured comparison with:
 1. Side-by-side table of key differences
 2. When to use each
 3. Trade-offs
-4. Generate a diagram for EACH system (two separate mermaid blocks)
+4. A diagram for EACH system (two separate mermaid blocks)
+
+DIAGRAM RULES — follow all of them:
+- Label each diagram using ONLY the system name as the heading, like this:
+  ## Instagram Diagram
+  [mermaid block]
+  ## YouTube Diagram
+  [mermaid block]
+- Do NOT use "Architecture Diagram" as a heading — use the actual system name
+- Diagram nodes must ONLY be architecture components: services, databases, caches, queues, CDN
+- ABSOLUTELY NO text annotations, trade-off notes, or prose sentences inside the mermaid blocks
+- Node labels: 2-3 words max, no parentheses, no special characters
+- Max 10 nodes per diagram, clean top-down tree
 
 Reference material:
 {context}
@@ -165,8 +184,9 @@ REFERENCE MATERIAL:
 USER QUESTION:
 {latest}"""
 
+    # use whatever model the user picked (defaults to flash-lite)
     chat_session = gemini.chats.create(
-        model="gemini-2.5-flash-lite",
+        model=request.model,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT
         ),
@@ -178,6 +198,9 @@ USER QUESTION:
         for chunk in response:
             if chunk.text:
                 yield f"data: {json.dumps({'text': chunk.text})}\n\n"
+        # send which docs were retrieved so frontend can show citations
+        if sources:
+            yield f"data: {json.dumps({'sources': sources})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -225,6 +248,20 @@ Return ONLY valid JSON in this exact format, nothing else:
         return quiz_data
     except Exception as e:
         return {"error": "Failed to parse quiz", "raw": response.text}
+
+
+# ── Feedback endpoint — thumbs up / down on AI responses ──
+class FeedbackRequest(BaseModel):
+    message_index: int           # which message in the chat (0-indexed)
+    rating: int                  # 1 = helpful, -1 = not helpful
+    session_id: int = None  # optional — only set if session was saved
+
+@app.post("/feedback")
+async def submit_feedback(req: FeedbackRequest):
+    if req.rating not in (1, -1):
+        raise HTTPException(status_code=400, detail="rating must be 1 or -1")
+    save_feedback(req.session_id, req.message_index, req.rating)
+    return {"message": "thanks for the feedback!"}
 
 
 #to save routes
