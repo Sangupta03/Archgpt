@@ -12,8 +12,6 @@
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-RAG-orange?style=flat)](https://www.trychroma.com)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
-[Live Demo](#) · [Report Bug](issues) · [Request Feature](issues)
-
 </div>
 
 ---
