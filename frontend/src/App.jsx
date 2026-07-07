@@ -7,11 +7,40 @@ import AuthSuccess from "./AuthSuccess"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
+// Sun icon for "switch to light mode" button
+function SunIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="5"/>
+      <line x1="12" y1="1" x2="12" y2="3"/>
+      <line x1="12" y1="21" x2="12" y2="23"/>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+      <line x1="1" y1="12" x2="3" y2="12"/>
+      <line x1="21" y1="12" x2="23" y2="12"/>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>
+  )
+}
+
+// Moon icon for "switch to dark mode" button
+function MoonIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  )
+}
+
 export default function App() {
   const [messages, setMessages] = useState([])
   const [diagrams, setDiagrams] = useState([]) // [{label, code}]
   const [systemName, setSystemName] = useState("")
-  const [panelWidth, setPanelWidth] = useState(420)
+  const [panelWidth, setPanelWidth] = useState(440)
+
+  // "dark" or "light" — persisted to localStorage
+  const [theme, setTheme] = useState(() => localStorage.getItem("archgpt_theme") || "dark")
 
   // Auth state
   const [user, setUser] = useState(null)
@@ -20,6 +49,13 @@ export default function App() {
 
   const isAuthCallback = window.location.pathname === "/auth/success"
   const isResizing = useRef(false)
+
+  // Whenever theme changes, update the data-theme attribute on <html>
+  // This makes all CSS variables in index.css switch automatically
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme)
+    localStorage.setItem("archgpt_theme", theme)
+  }, [theme])
 
   useEffect(() => {
     if (token) {
@@ -124,9 +160,15 @@ export default function App() {
   }
 
   function extractSystemName(text) {
+    // "compare X and Y" or "compare X vs Y" → "X vs Y"
+    const compareAnd = text.match(/compare\s+([a-zA-Z]+)\s+and\s+([a-zA-Z]+)/i)
+    if (compareAnd) return `${compareAnd[1]} vs ${compareAnd[2]}`
+
+    const compareVs = text.match(/compare\s+([a-zA-Z]+)\s+(?:vs|versus)\s+([a-zA-Z]+)/i)
+    if (compareVs) return `${compareVs[1]} vs ${compareVs[2]}`
+
     const patterns = [
       /design\s+(?:a\s+)?([a-zA-Z\s]+?)(?:\s+system|\s+shortener)?$/i,
-      /compare\s+([a-zA-Z]+)\s+(?:vs|versus)/i,
       /how does\s+([a-zA-Z]+)\s+scale/i,
       /quiz\s+me\s+on\s+([a-zA-Z\s]+)/i,
     ]
@@ -141,10 +183,11 @@ export default function App() {
     if (userMsg) {
       setMessages(prev => [...prev, userMsg])
       const name = extractSystemName(userMsg.content)
-      if (name) setSystemName(name)
+      // always update — clears stale name from previous question
+      setSystemName(name || "")
     }
     if (assistantMsg) {
-      // Replace last assistant bubble during streaming instead of appending
+      // Replace last assistant bubble during streaming (not append)
       setMessages(prev => {
         const last = prev[prev.length - 1]
         if (last && last.role === "assistant") {
@@ -152,12 +195,13 @@ export default function App() {
         }
         return [...prev, assistantMsg]
       })
-      // Extract all mermaid blocks with labels from surrounding text
+      // Extract all mermaid diagrams with auto-labels from surrounding text
       const allBlocks = [...assistantMsg.content.matchAll(/```mermaid\n([\s\S]+?)```/g)]
       if (allBlocks.length > 0) {
         const extracted = allBlocks.map((match) => {
           const before = assistantMsg.content.slice(Math.max(0, match.index - 300), match.index)
-          const labelMatch = before.match(/(?:#{2,3}\s+|\*{2})([\w\s\-]+?)(?:\*{2})?\s*\n?\s*$/)
+          // match any ## to ###### heading or **bold** label before the mermaid block
+          const labelMatch = before.match(/(?:#{2,6}\s+|\*{2})([^\n]+?)(?:\*{2})?\s*\n?\s*$/)
           return { label: labelMatch ? labelMatch[1].trim() : null, code: match[1].trim() }
         })
         setDiagrams(extracted)
@@ -166,35 +210,77 @@ export default function App() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "var(--bg-base)" }}>
 
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────── */}
       <div style={{
-        height: "48px", background: "#111", borderBottom: "1px solid #222",
-        display: "flex", alignItems: "center", padding: "0 20px", gap: "12px", flexShrink: 0
+        height: "50px",
+        background: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border)",
+        display: "flex", alignItems: "center", padding: "0 14px", gap: "10px",
+        flexShrink: 0,
+        boxShadow: "var(--shadow)"
       }}>
-        <div style={{
-          width: "28px", height: "28px", background: "#5b4de8", borderRadius: "6px",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: "14px", fontWeight: "700", color: "white"
-        }}>A</div>
-        <span style={{ fontSize: "15px", fontWeight: "500" }}>ArchGPT</span>
-        <span style={{ fontSize: "13px", color: "#444" }}>/ AI system design explainer</span>
 
+        {/* Logo: purple gradient square with "A" */}
+        <div style={{
+          width: "28px", height: "28px",
+          background: "linear-gradient(135deg, var(--accent) 0%, #a78bfa 100%)",
+          borderRadius: "7px",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "13px", fontWeight: "800", color: "white",
+          flexShrink: 0,
+          boxShadow: "0 2px 8px rgba(108,92,245,0.25)"
+        }}>A</div>
+
+        <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
+          ArchGPT
+        </span>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+          — learn system design
+        </span>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Save session button (only visible when logged in and there are messages) */}
         {user && messages.length > 0 && (
           <button
             onClick={saveCurrentSession}
             style={{
-              background: "#1a2e1a", border: "1px solid #2a4a2a", borderRadius: "6px",
-              padding: "4px 12px", fontSize: "12px", color: "#4caf50", cursor: "pointer"
+              background: "var(--green-dim)",
+              border: "none",
+              borderRadius: "7px",
+              padding: "5px 12px",
+              fontSize: "11px",
+              color: "var(--green-text)",
+              cursor: "pointer",
+              fontWeight: "600"
             }}
-          >↓ Save session</button>
+          >↓ Save</button>
         )}
+
+        {/* Light / dark toggle */}
+        <button
+          onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: "7px",
+            padding: "5px 8px",
+            cursor: "pointer",
+            color: "var(--text-muted)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            lineHeight: 0
+          }}
+        >
+          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+        </button>
 
         <AuthButton user={user} onLogin={() => {}} onLogout={handleLogout} />
       </div>
 
-      {/* Body */}
+      {/* ── Body ───────────────────────────────────────────── */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
         {user && (
@@ -206,18 +292,27 @@ export default function App() {
           />
         )}
 
-        <div style={{ width: `${panelWidth}px`, minWidth: `${panelWidth}px`, overflow: "hidden" }}>
+        {/* Chat panel — resizable width */}
+        <div style={{ width: `${panelWidth}px`, minWidth: `${panelWidth}px`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <ChatPanel messages={messages} onNewMessage={handleNewMessage} token={token} />
         </div>
 
+        {/* Drag handle between panels */}
         <div
           onMouseDown={startResize}
-          style={{ width: "4px", background: "#222", cursor: "col-resize", flexShrink: 0 }}
-          onMouseEnter={e => e.target.style.background = "#5b4de8"}
-          onMouseLeave={e => e.target.style.background = "#222"}
+          style={{
+            width: "4px",
+            background: "var(--border-subtle)",
+            cursor: "col-resize",
+            flexShrink: 0,
+            transition: "background 0.15s"
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = "var(--accent)"}
+          onMouseLeave={e => e.currentTarget.style.background = "var(--border-subtle)"}
         />
 
-        <DiagramPanel diagrams={diagrams} systemName={systemName} />
+        {/* Diagram panel — gets theme so mermaid picks the right color scheme */}
+        <DiagramPanel diagrams={diagrams} systemName={systemName} theme={theme} />
       </div>
     </div>
   )

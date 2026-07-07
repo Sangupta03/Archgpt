@@ -1,170 +1,244 @@
 import { useState, useEffect, useRef } from "react"
 
-// A single chat bubble — reused for every message
-// props.role = "user" or "assistant"
-// props.content = the text
-// Replace your MessageBubble function with this improved version
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
+// ── Markdown / response formatter ──────────────────────────
+// Parses the AI's text and renders it with proper hierarchy.
+// All colors use CSS variables so they switch with dark/light theme.
 function formatContent(content) {
-  // Split content into sections — mermaid blocks vs regular text
+  // Split on mermaid code blocks — those get a "diagram rendered" notice
   const parts = content.split(/(```mermaid[\s\S]*?```)/g)
 
   return parts.map((part, i) => {
-    // Skip mermaid blocks entirely — diagram panel shows them
     if (part.startsWith("```mermaid")) {
       return (
         <div key={i} style={{
-          background: "#1a2e1a", border: "1px solid #2a4a2a",
-          borderRadius: "8px", padding: "8px 12px", margin: "8px 0",
-          fontSize: "12px", color: "#4caf50"
+          background: "var(--green-dim)",
+          border: "1px solid var(--border)",
+          borderRadius: "8px",
+          padding: "8px 12px",
+          margin: "8px 0",
+          fontSize: "12px",
+          color: "var(--green-text)",
+          display: "flex",
+          gap: "8px",
+          alignItems: "center"
         }}>
-          ✓ Architecture diagram rendered on the right panel →
+          <span>✓</span>
+          <span>Architecture diagram rendered on the right →</span>
         </div>
       )
     }
 
-    // Format regular markdown text
     const lines = part.split("\n")
     let qNum = 0
+
     return (
       <div key={i}>
         {lines.map((line, j) => {
+
           // ## Heading
           if (line.startsWith("## ")) {
-            return <div key={j} style={{
-              fontSize: "15px", fontWeight: "600", color: "#fff",
-              margin: "14px 0 6px", paddingBottom: "4px",
-              borderBottom: "1px solid #2a2a2a"
-            }}>{line.replace("## ", "")}</div>
+            return (
+              <div key={j} style={{
+                fontSize: "15px", fontWeight: "600", color: "var(--text-primary)",
+                margin: "14px 0 6px", paddingBottom: "5px",
+                borderBottom: "1px solid var(--border)"
+              }}>
+                {line.replace("## ", "")}
+              </div>
+            )
           }
-          // ### Sub heading
+
+          // ### Sub-heading
           if (line.startsWith("### ")) {
-            return <div key={j} style={{
-              fontSize: "13px", fontWeight: "600", color: "#ccc",
-              margin: "10px 0 4px"
-            }}>{line.replace("### ", "")}</div>
+            return (
+              <div key={j} style={{
+                fontSize: "13px", fontWeight: "600", color: "var(--text-secondary)",
+                margin: "10px 0 4px"
+              }}>
+                {line.replace("### ", "")}
+              </div>
+            )
           }
+
           // Numbered list  1. 2. 3.
           if (/^\d+\.\s/.test(line)) {
-            return <div key={j} style={{
-              display: "flex", gap: "8px", margin: "4px 0", fontSize: "13px"
-            }}>
-              <span style={{ color: "#5b4de8", fontWeight: "600", flexShrink: 0 }}>
-                {line.match(/^(\d+)\./)[1]}.
-              </span>
-              <span style={{ color: "#ccc" }} dangerouslySetInnerHTML={{
-                __html: line.replace(/^\d+\.\s/, "").replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
-              }} />
-            </div>
+            return (
+              <div key={j} style={{ display: "flex", gap: "8px", margin: "4px 0", fontSize: "13px" }}>
+                <span style={{ color: "var(--accent)", fontWeight: "600", flexShrink: 0 }}>
+                  {line.match(/^(\d+)\./)[1]}.
+                </span>
+                <span style={{ color: "var(--text-secondary)", lineHeight: "1.6" }}
+                  dangerouslySetInnerHTML={{
+                    __html: line.replace(/^\d+\.\s/, "").replace(/\*\*(.+?)\*\*/g, "<strong style='color:var(--text-primary)'>$1</strong>")
+                  }}
+                />
+              </div>
+            )
           }
-          // Bullet point
+
+          // Bullet point  - or •
           if (line.startsWith("- ") || line.startsWith("• ")) {
             const text = line.replace(/^[-•]\s/, "")
-            return <div key={j} style={{
-              display: "flex", gap: "8px", margin: "3px 0", fontSize: "13px"
-            }}>
-              <span style={{ color: "#5b4de8", flexShrink: 0, marginTop: "1px" }}>▸</span>
-              <span style={{ color: "#ccc" }} dangerouslySetInnerHTML={{
-                __html: text.replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
-              }} />
-            </div>
+            return (
+              <div key={j} style={{ display: "flex", gap: "8px", margin: "4px 0", fontSize: "13px" }}>
+                <span style={{ color: "var(--accent)", flexShrink: 0, marginTop: "2px" }}>▸</span>
+                <span style={{ color: "var(--text-secondary)", lineHeight: "1.6" }}
+                  dangerouslySetInnerHTML={{
+                    __html: text.replace(/\*\*(.+?)\*\*/g, "<strong style='color:var(--text-primary)'>$1</strong>")
+                  }}
+                />
+              </div>
+            )
           }
-          // Quiz question line  Q:
+
+          // Quiz question  Q:
           if (line.startsWith("Q:")) {
             qNum++
-            return <div key={j} style={{
-              background: "#1e1e2e", border: "1px solid #2e2e4e",
-              borderRadius: "8px", padding: "10px 12px", margin: "10px 0 4px",
-              fontSize: "13px", color: "#c8c8f0", fontWeight: "500"
-            }}>Q{qNum}. {line.replace("Q:", "").trim()}</div>
+            return (
+              <div key={j} style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderLeft: "3px solid var(--accent)",
+                borderRadius: "0 8px 8px 0",
+                padding: "10px 14px",
+                margin: "12px 0 4px",
+                fontSize: "13px",
+                color: "var(--text-primary)",
+                fontWeight: "500"
+              }}>
+                Q{qNum}. {line.replace("Q:", "").trim()}
+              </div>
+            )
           }
-          // Quiz options  A) B) C) D) — may all be on one line or separate
+
+          // Quiz options  A) B) C) D) — may all appear on one line
           if (/^[A-D]\)/.test(line)) {
-            // Split "A) foo B) bar C) baz D) qux" into individual options
+            // Split "A) x B) y C) z D) w" into individual options
             const opts = line.split(/(?=[B-D]\))/).map(s => s.trim()).filter(Boolean)
             return (
               <div key={j}>
                 {opts.map((opt, k) => (
                   <div key={k} style={{
-                    padding: "4px 12px", fontSize: "12px", color: "#888",
-                    display: "flex", gap: "8px"
+                    padding: "4px 14px",
+                    fontSize: "13px",
+                    color: "var(--text-secondary)",
+                    display: "flex",
+                    gap: "10px",
+                    margin: "2px 0"
                   }}>
                     <span style={{
-                      background: "#2a2a2a", borderRadius: "4px",
-                      padding: "1px 7px", color: "#aaa", fontWeight: "500", flexShrink: 0
-                    }}>{opt[0]}</span>
+                      background: "var(--bg-hover)",
+                      borderRadius: "4px",
+                      padding: "1px 7px",
+                      color: "var(--text-secondary)",
+                      fontWeight: "600",
+                      flexShrink: 0,
+                      fontSize: "12px"
+                    }}>
+                      {opt[0]}
+                    </span>
                     <span>{opt.slice(3).trim()}</span>
                   </div>
                 ))}
               </div>
             )
           }
-          // Answer line — hidden from quiz display
+
+          // Answer line — hidden so quiz works properly
           if (line.startsWith("Answer:")) {
             return null
           }
-          // Table row  | a | b | c |
+
+          // Table row  | a | b |
           if (line.startsWith("|") && line.endsWith("|")) {
-            if (line.includes("---")) return null // skip separator rows
+            if (line.includes("---")) return null // skip separator row
             const cells = line.split("|").filter(c => c.trim())
             const isHeader = lines[j + 1]?.includes("---")
-            return <div key={j} style={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${cells.length}, 1fr)`,
-              gap: "1px", marginBottom: "1px"
-            }}>
-              {cells.map((cell, k) => (
-                <div key={k} style={{
-                  padding: "5px 8px", fontSize: "12px",
-                  background: isHeader ? "#2a2a3e" : "#1a1a1a",
-                  color: isHeader ? "#c8c8f0" : "#aaa",
-                  fontWeight: isHeader ? "600" : "400",
-                  border: "1px solid #2a2a2a"
-                }} dangerouslySetInnerHTML={{
-                  __html: cell.trim().replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
-                }} />
-              ))}
-            </div>
+            return (
+              <div key={j} style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${cells.length}, 1fr)`,
+                gap: "1px",
+                marginBottom: "1px"
+              }}>
+                {cells.map((cell, k) => (
+                  <div key={k} style={{
+                    padding: "6px 10px",
+                    fontSize: "12px",
+                    background: isHeader ? "var(--bg-hover)" : "var(--bg-card)",
+                    color: isHeader ? "var(--text-primary)" : "var(--text-secondary)",
+                    fontWeight: isHeader ? "600" : "400",
+                    border: "1px solid var(--border)"
+                  }}
+                    dangerouslySetInnerHTML={{
+                      __html: cell.trim().replace(/\*\*(.+?)\*\*/g, "<strong style='color:var(--text-primary)'>$1</strong>")
+                    }}
+                  />
+                ))}
+              </div>
+            )
           }
-          // Bold inline text paragraph
+
+          // Inline bold paragraph
           if (line.trim() && line.includes("**")) {
-            return <div key={j} style={{ fontSize: "13px", color: "#bbb", margin: "3px 0", lineHeight: "1.6" }}
-              dangerouslySetInnerHTML={{
-                __html: line.replace(/\*\*(.+?)\*\*/g, "<strong style='color:#fff'>$1</strong>")
-              }} />
+            return (
+              <div key={j} style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "3px 0", lineHeight: "1.7" }}
+                dangerouslySetInnerHTML={{
+                  __html: line.replace(/\*\*(.+?)\*\*/g, "<strong style='color:var(--text-primary)'>$1</strong>")
+                }}
+              />
+            )
           }
-          // Empty line = spacing
+
+          // Empty line → small spacer
           if (!line.trim()) return <div key={j} style={{ height: "6px" }} />
-          // Regular paragraph
-          return <div key={j} style={{
-            fontSize: "13px", color: "#bbb", margin: "3px 0", lineHeight: "1.6"
-          }}>{line}</div>
+
+          // Plain paragraph
+          return (
+            <div key={j} style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "3px 0", lineHeight: "1.7" }}>
+              {line}
+            </div>
+          )
         })}
       </div>
     )
   })
 }
 
+// ── Single chat bubble ──────────────────────────────────────
 function MessageBubble({ role, content }) {
+  const isUser = role === "user"
   return (
-    <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginBottom: "16px" }}>
+    <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginBottom: "18px" }}>
+
+      {/* Avatar chip */}
       <div style={{
-        width: "28px", height: "28px", borderRadius: "6px",
-        background: role === "user" ? "#2a2a3e" : "#1a2e1a",
-        color: role === "user" ? "#8b83f5" : "#4caf50",
+        width: "28px", height: "28px",
+        borderRadius: "7px",
+        background: isUser ? "var(--accent-dim)" : "var(--green-dim)",
+        color: isUser ? "var(--accent-text)" : "var(--green-text)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: "11px", fontWeight: "600", flexShrink: 0, marginTop: "2px"
+        fontSize: "10px", fontWeight: "700",
+        flexShrink: 0, marginTop: "1px"
       }}>
-        {role === "user" ? "You" : "AI"}
+        {isUser ? "You" : "AI"}
       </div>
+
+      {/* Message content */}
       <div style={{
-        background: role === "user" ? "#1e1e2e" : "#1a1a1a",
-        border: `1px solid ${role === "user" ? "#2e2e4e" : "#2a2a2a"}`,
-        borderRadius: "10px", padding: "12px 14px",
-        maxWidth: "680px", width: "100%"
+        background: isUser ? "var(--user-bg)" : "var(--ai-bg)",
+        border: `1px solid ${isUser ? "var(--user-border)" : "var(--ai-border)"}`,
+        // Corners: user = no bottom-right, AI = no top-left — subtle distinction
+        borderRadius: isUser ? "12px 12px 4px 12px" : "4px 12px 12px 12px",
+        padding: "12px 16px",
+        maxWidth: "680px",
+        width: "100%",
+        lineHeight: "1.6"
       }}>
-        {role === "user"
-          ? <div style={{ fontSize: "13px", color: "#c8c8f0" }}>{content}</div>
+        {isUser
+          ? <div style={{ fontSize: "13px", color: "var(--user-text)", lineHeight: "1.6" }}>{content}</div>
           : formatContent(content)
         }
       </div>
@@ -172,7 +246,8 @@ function MessageBubble({ role, content }) {
   )
 }
 
-export default function ChatPanel({ messages, onNewMessage }) {
+// ── Main ChatPanel ──────────────────────────────────────────
+export default function ChatPanel({ messages, onNewMessage, token }) {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
@@ -192,7 +267,7 @@ export default function ChatPanel({ messages, onNewMessage }) {
 
     try {
       const allMessages = [...messages, userMsg]
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/chat`, {
+      const res = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: allMessages }),
@@ -230,6 +305,7 @@ export default function ChatPanel({ messages, onNewMessage }) {
     }
   }
 
+  // Send a preset suggestion prompt immediately
   function sendSuggestion(text) {
     setInput(text)
     setTimeout(() => {
@@ -238,7 +314,7 @@ export default function ChatPanel({ messages, onNewMessage }) {
       setInput("")
       setLoading(true)
       const allMessages = [...messages, userMsg]
-      fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/chat`, {
+      fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: allMessages }),
@@ -270,7 +346,16 @@ export default function ChatPanel({ messages, onNewMessage }) {
     }, 0)
   }
 
-  const suggestions = [
+  // Cards shown in the empty state — 2×2 grid
+  const suggestionCards = [
+    { label: "YouTube", prompt: "Design YouTube", emoji: "📺", desc: "Video streaming at scale" },
+    { label: "Swiggy", prompt: "Design Swiggy", emoji: "🛵", desc: "Food delivery system" },
+    { label: "URL Shortener", prompt: "Design a URL Shortener", emoji: "🔗", desc: "High-throughput redirects" },
+    { label: "WhatsApp", prompt: "Design WhatsApp", emoji: "💬", desc: "Real-time messaging" },
+  ]
+
+  // Compact chips shown above input once conversation starts
+  const suggestionChips = [
     { label: "YouTube", prompt: "Design YouTube" },
     { label: "Swiggy", prompt: "Design Swiggy" },
     { label: "URL Shortener", prompt: "Design a URL Shortener" },
@@ -278,74 +363,158 @@ export default function ChatPanel({ messages, onNewMessage }) {
   ]
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0f0f0f" }}>
-      {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--bg-base)" }}>
+
+      {/* ── Message area ──────────────────────────────────── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 18px 16px" }}>
+
+        {/* Empty state — shown before any message is sent */}
         {messages.length === 0 && (
-          <div style={{ textAlign: "center", color: "#333", marginTop: "60px" }}>
-            <div style={{ fontSize: "32px", marginBottom: "12px" }}>⬡</div>
-            <div style={{ fontSize: "14px", color: "#555" }}>Ask me to design any system</div>
-            <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap", marginTop: "20px" }}>
-              {suggestions.map(s => (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "50px", padding: "0 12px" }}>
+
+            {/* Logo */}
+            <div style={{
+              width: "50px", height: "50px",
+              background: "linear-gradient(135deg, var(--accent) 0%, #a78bfa 100%)",
+              borderRadius: "14px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "20px", fontWeight: "800", color: "white",
+              boxShadow: "0 4px 20px rgba(108,92,245,0.25)",
+              marginBottom: "18px"
+            }}>A</div>
+
+            <h2 style={{
+              fontSize: "20px", fontWeight: "700", color: "var(--text-primary)",
+              marginBottom: "6px", textAlign: "center", letterSpacing: "-0.02em"
+            }}>
+              what do you want to design?
+            </h2>
+
+            <p style={{
+              fontSize: "13px", color: "var(--text-muted)",
+              marginBottom: "28px", textAlign: "center", lineHeight: "1.6"
+            }}>
+              design systems · compare architectures · ace your interviews
+            </p>
+
+            {/* 2×2 suggestion cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", width: "100%", maxWidth: "340px" }}>
+              {suggestionCards.map(s => (
                 <button
                   key={s.label}
                   onClick={() => sendSuggestion(s.prompt)}
                   style={{
-                    background: "#1a1a1a", border: "1px solid #2a2a2a",
-                    borderRadius: "20px", padding: "6px 14px",
-                    fontSize: "12px", color: "#888", cursor: "pointer",
-                    transition: "border-color 0.15s, color 0.15s"
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "12px",
+                    padding: "14px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    transition: "border-color 0.15s, background 0.15s, transform 0.1s",
+                    lineHeight: "normal"
                   }}
-                  onMouseEnter={e => { e.target.style.borderColor = "#5b4de8"; e.target.style.color = "#c8c8f0" }}
-                  onMouseLeave={e => { e.target.style.borderColor = "#2a2a2a"; e.target.style.color = "#888" }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = "var(--accent)"
+                    e.currentTarget.style.background = "var(--accent-dim)"
+                    e.currentTarget.style.transform = "translateY(-1px)"
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = "var(--border)"
+                    e.currentTarget.style.background = "var(--bg-surface)"
+                    e.currentTarget.style.transform = "translateY(0)"
+                  }}
                 >
-                  {s.label}
+                  <div style={{ fontSize: "18px", marginBottom: "6px" }}>{s.emoji}</div>
+                  <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "2px" }}>{s.label}</div>
+                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{s.desc}</div>
                 </button>
               ))}
             </div>
           </div>
         )}
+
+        {/* Message bubbles */}
         {messages.map((msg, i) => (
           <MessageBubble key={i} role={msg.role} content={msg.content} />
         ))}
+
+        {/* Animated typing dots while AI is responding */}
         {loading && (
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "16px" }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "18px" }}>
             <div style={{
-              width: "28px", height: "28px", borderRadius: "6px", background: "#1a2e1a",
-              color: "#4caf50", display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "11px", fontWeight: "600", flexShrink: 0
+              width: "28px", height: "28px",
+              borderRadius: "7px",
+              background: "var(--green-dim)",
+              color: "var(--green-text)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "10px", fontWeight: "700",
+              flexShrink: 0
             }}>AI</div>
-            <div style={{ fontSize: "13px", color: "#444" }}>Thinking…</div>
+            <div style={{
+              background: "var(--ai-bg)",
+              border: "1px solid var(--ai-border)",
+              borderRadius: "4px 12px 12px 12px",
+              padding: "14px 16px",
+              display: "flex",
+              gap: "5px",
+              alignItems: "center"
+            }}>
+              {/* These use the .typing-dot CSS class for the blink animation */}
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+            </div>
           </div>
         )}
+
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div style={{ padding: "12px 16px", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
-        {/* Quick suggestion chips above input */}
+      {/* ── Input area ────────────────────────────────────── */}
+      <div style={{
+        padding: "10px 14px 14px",
+        borderTop: "1px solid var(--border)",
+        background: "var(--bg-surface)",
+        flexShrink: 0
+      }}>
+
+        {/* Quick chips above input — shown once conversation has started */}
         {messages.length > 0 && (
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
-            {suggestions.map(s => (
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "9px" }}>
+            {suggestionChips.map(s => (
               <button
                 key={s.label}
                 onClick={() => sendSuggestion(s.prompt)}
                 disabled={loading}
                 style={{
-                  background: "#1a1a1a", border: "1px solid #2a2a2a",
-                  borderRadius: "20px", padding: "3px 10px",
-                  fontSize: "11px", color: "#666", cursor: loading ? "not-allowed" : "pointer",
-                  transition: "border-color 0.15s, color 0.15s"
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "20px",
+                  padding: "3px 11px",
+                  fontSize: "11px",
+                  color: "var(--text-muted)",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  fontWeight: "500"
                 }}
-                onMouseEnter={e => { if (!loading) { e.target.style.borderColor = "#5b4de8"; e.target.style.color = "#aaa" } }}
-                onMouseLeave={e => { e.target.style.borderColor = "#2a2a2a"; e.target.style.color = "#666" }}
+                onMouseEnter={e => {
+                  if (!loading) {
+                    e.currentTarget.style.borderColor = "var(--accent)"
+                    e.currentTarget.style.color = "var(--accent-text)"
+                  }
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = "var(--border)"
+                  e.currentTarget.style.color = "var(--text-muted)"
+                }}
               >
                 {s.label}
               </button>
             ))}
           </div>
         )}
-        <div style={{ display: "flex", gap: "8px" }}>
+
+        {/* Textarea + Send */}
+        <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -353,20 +522,36 @@ export default function ChatPanel({ messages, onNewMessage }) {
             placeholder="Design a system, ask a concept, or request a quiz…"
             rows={2}
             style={{
-              flex: 1, background: "#1a1a1a", border: "1px solid #2a2a2a",
-              borderRadius: "8px", padding: "10px 12px", color: "#e8e8e8",
-              fontSize: "13px", resize: "none", outline: "none", fontFamily: "inherit"
+              flex: 1,
+              background: "var(--bg-input)",
+              border: "1px solid var(--border)",
+              borderRadius: "10px",
+              padding: "10px 14px",
+              color: "var(--text-primary)",
+              fontSize: "13px",
+              resize: "none",
+              outline: "none",
+              fontFamily: "inherit",
+              lineHeight: "1.5"
             }}
+            onFocus={e => e.target.style.borderColor = "var(--accent)"}
+            onBlur={e => e.target.style.borderColor = "var(--border)"}
           />
           <button
             onClick={sendMessage}
             disabled={loading || !input.trim()}
             style={{
-              background: loading || !input.trim() ? "#1a1a1a" : "#5b4de8",
-              border: "none", borderRadius: "8px", padding: "0 16px",
-              color: loading || !input.trim() ? "#444" : "#fff",
-              fontSize: "13px", cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-              flexShrink: 0, transition: "background 0.15s"
+              background: loading || !input.trim() ? "var(--bg-hover)" : "var(--accent)",
+              border: "none",
+              borderRadius: "10px",
+              padding: "0 18px",
+              height: "60px",
+              color: loading || !input.trim() ? "var(--text-muted)" : "white",
+              fontSize: "13px",
+              fontWeight: "500",
+              cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+              flexShrink: 0,
+              transition: "background 0.15s"
             }}
           >
             {loading ? "…" : "Send"}

@@ -1,12 +1,159 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* ── Light theme (default) ─────────────────────────────── */
+:root {
+  --bg-base:      #f7f7fb;
+  --bg-surface:   #ffffff;
+  --bg-card:      #f0f0f8;
+  --bg-hover:     #e8e8f4;
+  --bg-input:     #ffffff;
+  --border:       #dddde8;
+  --border-subtle:#ebebf4;
+
+  --text-primary:   #14141f;
+  --text-secondary: #5a5a72;
+  --text-muted:     #9999b0;
+
+  --accent:       #6c5cf5;
+  --accent-hover: #5a4be0;
+  --accent-dim:   #ede9ff;
+  --accent-text:  #5548d9;
+
+  --green:        #16a34a;
+  --green-dim:    #dcfce7;
+  --green-text:   #15803d;
+
+  --user-bg:      #ede9fe;
+  --user-border:  #c4b5fd;
+  --user-text:    #3b1f8c;
+
+  --ai-bg:        #ffffff;
+  --ai-border:    #e2e2ee;
+
+  --scrollbar:    #d0d0e0;
+  --shadow:       0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* ── Dark theme (OS preference) ────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-base:      #0e0e12;
+    --bg-surface:   #16161d;
+    --bg-card:      #1c1c26;
+    --bg-hover:     #222230;
+    --bg-input:     #18181f;
+    --border:       #2a2a3a;
+    --border-subtle:#1f1f2e;
+
+    --text-primary:   #e8e8f0;
+    --text-secondary: #8b8ba0;
+    --text-muted:     #4a4a60;
+
+    --accent:       #7c6cf5;
+    --accent-hover: #8f80f7;
+    --accent-dim:   #1e1a40;
+    --accent-text:  #a99ef8;
+
+    --green:        #4ade80;
+    --green-dim:    #0d2a14;
+    --green-text:   #4ade80;
+
+    --user-bg:      #1a1630;
+    --user-border:  #3d3568;
+    --user-text:    #c4b5fd;
+
+    --ai-bg:        #1c1c26;
+    --ai-border:    #2a2a3a;
+
+    --scrollbar:    #2a2a3a;
+    --shadow:       0 1px 3px rgba(0,0,0,0.4);
+  }
+}
+
+/* ── Manual overrides via data-theme ───────────────────── */
+:root[data-theme="light"] {
+  --bg-base:      #f7f7fb;
+  --bg-surface:   #ffffff;
+  --bg-card:      #f0f0f8;
+  --bg-hover:     #e8e8f4;
+  --bg-input:     #ffffff;
+  --border:       #dddde8;
+  --border-subtle:#ebebf4;
+  --text-primary:   #14141f;
+  --text-secondary: #5a5a72;
+  --text-muted:     #9999b0;
+  --accent:       #6c5cf5;
+  --accent-hover: #5a4be0;
+  --accent-dim:   #ede9ff;
+  --accent-text:  #5548d9;
+  --green:        #16a34a;
+  --green-dim:    #dcfce7;
+  --green-text:   #15803d;
+  --user-bg:      #ede9fe;
+  --user-border:  #c4b5fd;
+  --user-text:    #3b1f8c;
+  --ai-bg:        #ffffff;
+  --ai-border:    #e2e2ee;
+  --scrollbar:    #d0d0e0;
+  --shadow:       0 1px 3px rgba(0,0,0,0.08);
+}
+
+:root[data-theme="dark"] {
+  --bg-base:      #0e0e12;
+  --bg-surface:   #16161d;
+  --bg-card:      #1c1c26;
+  --bg-hover:     #222230;
+  --bg-input:     #18181f;
+  --border:       #2a2a3a;
+  --border-subtle:#1f1f2e;
+  --text-primary:   #e8e8f0;
+  --text-secondary: #8b8ba0;
+  --text-muted:     #4a4a60;
+  --accent:       #7c6cf5;
+  --accent-hover: #8f80f7;
+  --accent-dim:   #1e1a40;
+  --accent-text:  #a99ef8;
+  --green:        #4ade80;
+  --green-dim:    #0d2a14;
+  --green-text:   #4ade80;
+  --user-bg:      #1a1630;
+  --user-border:  #3d3568;
+  --user-text:    #c4b5fd;
+  --ai-bg:        #1c1c26;
+  --ai-border:    #2a2a3a;
+  --scrollbar:    #2a2a3a;
+  --shadow:       0 1px 3px rgba(0,0,0,0.4);
+}
+
+/* ── Base ───────────────────────────────────────────────── */
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #0f0f0f;
-  color: #e8e8e8;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
   height: 100vh;
   overflow: hidden;
 }
 
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 10px; }
+
+/* ── Typing indicator dots ──────────────────────────────── */
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.15; transform: scale(0.75); }
+  40%            { opacity: 1;    transform: scale(1);    }
+}
+
+.typing-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: blink 1.4s ease infinite both;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot { animation: none; opacity: 0.4; }
+}

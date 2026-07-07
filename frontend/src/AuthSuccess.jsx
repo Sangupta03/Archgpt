@@ -1,12 +1,11 @@
 // handles the redirect back from Google OAuth
-// Google → FastAPI → redirects to /auth/success?token=xxx
-// This page reads the token from URL and stores it
+// URL looks like: /auth/success?token=xxxxx
+// reads the token, stores it, then kicks user back to /
 
 import { useEffect } from "react"
 
 export default function AuthSuccess({ onAuth }) {
   useEffect(() => {
-    // Read token from URL query params
     const params = new URLSearchParams(window.location.search)
     const token = params.get("token")
 
@@ -15,14 +14,30 @@ export default function AuthSuccess({ onAuth }) {
       onAuth(token)
     }
 
-    // Clean up URL — remove token from URL bar (security)
+    // remove token from URL bar (don't want it visible)
     window.history.replaceState({}, "", "/")
   }, [])
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center",
-      height: "100vh", color: "#888", fontSize: "14px" }}>
-      Logging you in...
+    <div style={{
+      display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center",
+      height: "100vh",
+      background: "var(--bg-base)",
+      gap: "14px"
+    }}>
+      {/* mini logo */}
+      <div style={{
+        width: "36px", height: "36px",
+        background: "linear-gradient(135deg, var(--accent), #a78bfa)",
+        borderRadius: "10px",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "16px", fontWeight: "800", color: "white"
+      }}>A</div>
+
+      <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+        logging you in…
+      </span>
     </div>
   )
 }
