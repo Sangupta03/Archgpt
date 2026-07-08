@@ -124,7 +124,7 @@ export default function FlashcardModal({ onClose }) {
             <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "18px", color: "var(--text-muted)", cursor: "pointer" }}>✕</button>
           </div>
 
-          <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "10px" }}>what topic do you want to study?</div>
+          <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "10px" }}>What topic do you want to study?</div>
           <input
             value={topic}
             onChange={e => setTopic(e.target.value)}
@@ -225,7 +225,7 @@ export default function FlashcardModal({ onClose }) {
                 <div style={{ fontSize: "17px", fontWeight: "600", color: "var(--text-primary)", lineHeight: "1.5" }}>
                   {card.front}
                 </div>
-                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "20px" }}>tap to reveal answer</div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "20px" }}>Tap to reveal answer</div>
               </div>
 
               {/* Back */}
@@ -246,13 +246,13 @@ export default function FlashcardModal({ onClose }) {
                 background: "var(--bg-card)", border: "1px solid var(--border)",
                 borderRadius: "10px", color: "var(--text-secondary)",
                 fontSize: "13px", cursor: "pointer"
-              }}>✗ still learning</button>
+              }}>✗ Still Learning</button>
               <button onClick={markKnown} style={{
                 flex: 1, padding: "11px",
                 background: "var(--green-dim)", border: "1px solid var(--green)",
                 borderRadius: "10px", color: "var(--green-text)",
                 fontSize: "13px", fontWeight: "600", cursor: "pointer"
-              }}>✓ got it</button>
+              }}>✓ Got It</button>
             </div>
           ) : (
             <div style={{ textAlign: "center", fontSize: "12px", color: "var(--text-muted)" }}>
@@ -278,7 +278,7 @@ export default function FlashcardModal({ onClose }) {
           {known}/{cards.length} cards known
         </div>
         <div style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "32px" }}>
-          {reviewList.length > 0 ? `${reviewList.length} card${reviewList.length > 1 ? "s" : ""} to review` : "you know them all!"}
+          {reviewList.length > 0 ? `${reviewList.length} card${reviewList.length > 1 ? "s" : ""} to review` : "You Know Them All!"}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -296,13 +296,13 @@ export default function FlashcardModal({ onClose }) {
               background: "var(--bg-card)", border: "1px solid var(--border)",
               borderRadius: "10px", color: "var(--text-secondary)",
               fontSize: "13px", cursor: "pointer"
-            }}>new topic</button>
+            }}>New Topic</button>
             <button onClick={onClose} style={{
               flex: 1, padding: "11px",
               background: "var(--bg-card)", border: "1px solid var(--border)",
               borderRadius: "10px", color: "var(--text-secondary)",
               fontSize: "13px", cursor: "pointer"
-            }}>done</button>
+            }}>Done</button>
           </div>
         </div>
       </div>

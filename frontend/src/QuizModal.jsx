@@ -100,7 +100,7 @@ export default function QuizModal({ onClose }) {
             <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "18px", color: "var(--text-muted)", cursor: "pointer" }}>✕</button>
           </div>
 
-          <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "10px" }}>what do you want to be quizzed on?</div>
+          <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "10px" }}>What do you want to be quizzed on?</div>
           <input
             value={topic}
             onChange={e => setTopic(e.target.value)}
@@ -234,7 +234,7 @@ export default function QuizModal({ onClose }) {
                 fontSize: "13px", color: isCorrect ? "var(--green-text)" : "#b91c1c",
                 marginBottom: "16px", lineHeight: "1.6"
               }}>
-                <strong>{isCorrect ? "correct! " : `wrong — answer is ${q.answer}. `}</strong>
+                <strong>{isCorrect ? "Correct! " : `Wrong — Answer is ${q.answer}. `}</strong>
                 {q.explanation}
               </div>
 
@@ -258,7 +258,7 @@ export default function QuizModal({ onClose }) {
   // ── Results screen ────────────────────────────────────
   const pct = Math.round((score / questions.length) * 100)
   const emoji = pct === 100 ? "🎉" : pct >= 60 ? "👍" : "📚"
-  const msg = pct === 100 ? "perfect score!" : pct >= 60 ? "good job!" : "keep studying!"
+  const msg = pct === 100 ? "Perfect Score!" : pct >= 60 ? "Good Job!" : "Keep Studying!"
 
   return (
     <Overlay onClose={onClose}>
@@ -277,13 +277,13 @@ export default function QuizModal({ onClose }) {
             background: "var(--bg-card)", border: "1px solid var(--border)",
             borderRadius: "10px", color: "var(--text-secondary)",
             fontSize: "13px", cursor: "pointer"
-          }}>try another topic</button>
+          }}>Try Another Topic</button>
           <button onClick={onClose} style={{
             flex: 1, padding: "11px",
             background: "var(--accent)", border: "none",
             borderRadius: "10px", color: "white",
             fontSize: "13px", fontWeight: "600", cursor: "pointer"
-          }}>done</button>
+          }}>Done</button>
         </div>
       </div>
     </Overlay>

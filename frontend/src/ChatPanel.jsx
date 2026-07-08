@@ -253,7 +253,7 @@ function MessageBubble({ role, content, sources, messageIndex }) {
             alignItems: "center"
           }}>
             <span style={{ fontSize: "10px", color: "var(--text-muted)", fontWeight: "600" }}>
-              from docs:
+              From Docs:
             </span>
             {sources.map(s => (
               <span key={s} style={{
@@ -303,7 +303,7 @@ function MessageBubble({ role, content, sources, messageIndex }) {
             >👎</button>
             {feedback && (
               <span style={{ fontSize: "10px", color: "var(--text-muted)", alignSelf: "center", marginLeft: "4px" }}>
-                {feedback === "up" ? "thanks!" : "noted, will improve"}
+                {feedback === "up" ? "Thanks!" : "Noted, will improve"}
               </span>
             )}
           </div>
