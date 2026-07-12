@@ -67,6 +67,35 @@ Automatically detects what you're asking and picks the right response format:
 
 ---
 
+## Metrics & Performance
+
+### RAG Pipeline
+| Metric | Value |
+|---|---|
+| Embedding model | gemini-embedding-001 |
+| Vector dimensions | 3,072 (full dimensionality — no reduction at this scale) |
+| Similarity metric | Cosine similarity (magnitude-invariant, better for semantic text) |
+| Retrieval k | Top-3 chunks per query |
+| Knowledge base | 22 curated system design documents |
+| Vector store | ChromaDB (persistent, survives restarts) |
+
+### System
+| Metric | Value |
+|---|---|
+| Streaming protocol | SSE — first token delivered without waiting for full response |
+| Intent modes | 4 (design · compare · quiz · concept) |
+| API endpoints | 7 (chat, quiz, flashcards, feedback, sessions CRUD, auth) |
+| Auth | Google OAuth 2.0 + JWT (stateless, no server-side sessions) |
+| DB tables | 3 (users, sessions, feedback) |
+
+### Design Decisions & Tradeoffs
+- **Why top-3 chunks?** More = more noise in the prompt; less = might miss context. 3 chunks ≈ 600–900 tokens of grounding without polluting the LLM context window.
+- **Why cosine over Euclidean?** Text embedding magnitude doesn't carry meaning — a short sentence and a long paragraph on the same topic should score similarly. Cosine measures angle, not magnitude.
+- **Why SSE over WebSockets?** Streaming is unidirectional (server → client only). SSE is simpler, works natively with FastAPI `StreamingResponse`, and eliminates WebSocket connection management overhead.
+- **Source label stripping:** Originally included `[Source: YouTube]` prefixes in retrieved chunks — the model started mimicking them inline everywhere. Stripped labels from context, tracked them separately, sent as a final SSE event rendered as UI chips instead.
+
+---
+
 ## Tech Stack
 
 | Layer | Tech |
@@ -150,10 +179,10 @@ npm run dev
 
 > **ArchGPT** — AI System Design Learning Platform
 > *(Python, FastAPI, React, Gemini 2.5 Flash, ChromaDB, PostgreSQL, Railway, Vercel)*
-> - Built a **RAG pipeline** over 22 curated system design docs using **ChromaDB** with **gemini-embedding-001** (3072-dim vectors, cosine similarity); retrieves top-3 chunks to ground Gemini responses in domain-accurate content
-> - Engineered an **intent-aware agent** (design / compare / quiz / concept modes) with **SSE streaming**, auto-generating **Mermaid.js architecture diagrams** and multi-diagram tab view for comparison queries
-> - Added **Quiz Mode** (5 MCQs with instant feedback) and **Flashcard Mode** (CSS 3D flip, spaced review of missed cards) using RAG-grounded Gemini responses; shows **source citations** as UI chips per response
-> - Deployed full-stack app with **Google OAuth + JWT** auth, **PostgreSQL** session persistence via Neon, thumbs-up/down **feedback collection**, and **CI/CD** via Railway + Vercel; end-to-end latency under **2s** for streaming first token
+> - Built end-to-end **RAG pipeline** over 22 curated system design docs using **ChromaDB** with **gemini-embedding-001** (3,072-dim vectors, cosine similarity); retrieves top-3 chunks per query, stripped source labels from context to prevent model mimicry, surfaced citations as UI chips via a separate SSE event
+> - Engineered a **4-mode intent-aware agent** (design / compare / quiz / concept) with **SSE streaming** — server sends tokens as they generate, no waiting for full response; auto-generates **Mermaid.js architecture diagrams** with a multi-tab view for comparison queries
+> - Built **Quiz Mode** (5 RAG-grounded MCQs, instant A/B/C/D feedback) and **Flashcard Mode** (8 cards, CSS 3D flip, missed-card review loop) — both call dedicated FastAPI endpoints backed by the same ChromaDB retrieval pipeline
+> - Deployed full-stack on **Railway + Vercel** with **Google OAuth 2.0 + JWT** auth, **PostgreSQL** session persistence (3 tables: users, sessions, feedback), thumbs-up/down feedback collection, and model selector (Flash Lite / Flash)
 
 ---
 
