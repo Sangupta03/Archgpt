@@ -175,17 +175,6 @@ npm run dev
 
 ---
 
-## Resume
-
-> **ArchGPT** — AI System Design Learning Platform
-> *(Python, FastAPI, React, Gemini 2.5 Flash, ChromaDB, PostgreSQL, Railway, Vercel)*
-> - Built end-to-end **RAG pipeline** over 22 curated system design docs using **ChromaDB** with **gemini-embedding-001** (3,072-dim vectors, cosine similarity); retrieves top-3 chunks per query, stripped source labels from context to prevent model mimicry, surfaced citations as UI chips via a separate SSE event
-> - Engineered a **4-mode intent-aware agent** (design / compare / quiz / concept) with **SSE streaming** — server sends tokens as they generate, no waiting for full response; auto-generates **Mermaid.js architecture diagrams** with a multi-tab view for comparison queries
-> - Built **Quiz Mode** (5 RAG-grounded MCQs, instant A/B/C/D feedback) and **Flashcard Mode** (8 cards, CSS 3D flip, missed-card review loop) — both call dedicated FastAPI endpoints backed by the same ChromaDB retrieval pipeline
-> - Deployed full-stack on **Railway + Vercel** with **Google OAuth 2.0 + JWT** auth, **PostgreSQL** session persistence (3 tables: users, sessions, feedback), thumbs-up/down feedback collection, and model selector (Flash Lite / Flash)
-
----
-
 <div align="center">
 Made by Sanjoli Gupta &nbsp;·&nbsp; ⭐ Star if it helped you!
 </div>
