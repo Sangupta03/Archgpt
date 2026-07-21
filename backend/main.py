@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from auth import get_google_auth_url, exchange_code_for_user, create_jwt, get_current_user_id
-from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session, save_feedback
+from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session, save_feedback, check_db_connection
 from pydantic import BaseModel, field_validator
 from google import genai
 from google.genai import types
@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 # ── Load env ──────────────────────────────────────────────
 load_dotenv()
+
+# Fail fast on startup if required env vars are missing
+_required_env = ["GEMINI_API_KEY", "DATABASE_URL", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+for _var in _required_env:
+    if not os.getenv(_var):
+        raise RuntimeError(f"Missing required environment variable: {_var}")
+
 gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -473,4 +480,11 @@ def remove_session(
 # ── Health check ──────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    db_ok = check_db_connection()
+    status = "ok" if db_ok else "degraded"
+    # 503 if DB is down so load balancers / Railway can detect it
+    code = 200 if db_ok else 503
+    return JSONResponse(
+        status_code=code,
+        content={"status": status, "db": db_ok}
+    )
