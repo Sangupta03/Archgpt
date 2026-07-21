@@ -2,17 +2,16 @@
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from auth import get_google_auth_url, exchange_code_for_user, create_jwt, get_current_user_id
 from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session, save_feedback
-
-
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from retriever import retrieve, retrieve_with_sources
-import os, json
+from typing import Optional
+import os, json, re
 
 # ── Load env ──────────────────────────────────────────────
 load_dotenv()
@@ -239,15 +238,13 @@ Return ONLY valid JSON in this exact format, nothing else:
     )
 
     try:
-        import re
-        # Strip markdown code fences if present
         text = response.text.strip()
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
         quiz_data = json.loads(text)
         return quiz_data
-    except Exception as e:
-        return {"error": "Failed to parse quiz", "raw": response.text}
+    except Exception:
+        return {"error": "Failed to parse quiz response"}
 
 
 # ── Flashcard endpoint — concept cards with front/back ────
@@ -286,20 +283,19 @@ Categories: concept, trade-off, example, why"""
     )
 
     try:
-        import re
         text = response.text.strip()
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
         return json.loads(text)
-    except Exception as e:
-        return {"error": "Failed to parse flashcards", "raw": response.text}
+    except Exception:
+        return {"error": "Failed to parse flashcards response"}
 
 
 # ── Feedback endpoint — thumbs up / down on AI responses ──
 class FeedbackRequest(BaseModel):
-    message_index: int           # which message in the chat (0-indexed)
+    message_index: int
     rating: int                  # 1 = helpful, -1 = not helpful
-    session_id: int = None  # optional — only set if session was saved
+    session_id: Optional[int] = None
 
 @app.post("/feedback")
 async def submit_feedback(req: FeedbackRequest):
@@ -312,8 +308,8 @@ async def submit_feedback(req: FeedbackRequest):
 #to save routes
 class SaveSessionRequest(BaseModel):
     title: str
-    messages: list
-    diagrams: list = []  # [{label, code}] — multi-diagram support
+    messages: list[dict]
+    diagrams: list[dict] = []
 
 
 # ── Auth routes ───────────────────────────────────────────
