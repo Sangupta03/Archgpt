@@ -11,7 +11,14 @@ from google.genai import types
 from dotenv import load_dotenv
 from retriever import retrieve, retrieve_with_sources
 from typing import Optional
-import os, json, re
+import os, json, re, logging, time
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 # ── Load env ──────────────────────────────────────────────
 load_dotenv()
@@ -134,8 +141,10 @@ async def chat(request: ChatRequest):
     # Intent 3: Pure concept question (no diagram needed)
     is_concept = any(w in lower for w in ["what is", "explain", "why does", "how does", "what are"])
 
-    # Always retrieve relevant docs + capture which sources were used
+    logger.info(f"chat | intent=compare:{is_compare} quiz:{is_quiz} concept:{is_concept} | model={request.model}")
+    t0 = time.time()
     context, sources = retrieve_with_sources(latest)
+    logger.info(f"retrieval done in {time.time()-t0:.2f}s | sources={sources}")
 
     if is_compare:
         augmented_prompt = f"""The user wants to COMPARE two systems.
@@ -272,8 +281,10 @@ Return ONLY valid JSON in this exact format, nothing else:
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
         quiz_data = json.loads(text)
+        logger.info(f"quiz generated | topic={request.topic} | questions={len(quiz_data.get('questions', []))}")
         return quiz_data
     except Exception:
+        logger.error(f"quiz parse failed | topic={request.topic}")
         return {"error": "Failed to parse quiz response"}
 
 
@@ -330,8 +341,11 @@ Categories: concept, trade-off, example, why"""
         text = response.text.strip()
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
-        return json.loads(text)
+        data = json.loads(text)
+        logger.info(f"flashcards generated | topic={request.topic} | cards={len(data.get('cards', []))}")
+        return data
     except Exception:
+        logger.error(f"flashcard parse failed | topic={request.topic}")
         return {"error": "Failed to parse flashcards response"}
 
 
