@@ -1,5 +1,7 @@
 SQL VS NOSQL — WHEN TO USE WHICH
 
+Sources: MongoDB documentation, PostgreSQL documentation, "Designing Data-Intensive Applications" (Kleppmann) ch.2-3
+
 Overview:
 One of the most common system design interview questions is "what database would you use?" There's no universal answer — the right choice depends on your data model, access patterns, consistency requirements, and scale. Understanding the trade-offs is more important than memorizing which is "better."
 

@@ -1,0 +1,55 @@
+Airbnb System Design (Case Study)
+
+Sources: Airbnb Engineering Blog (medium.com/airbnb-engineering)
+
+Core challenge:
+Airbnb's central hard problem isn't just "store listings and bookings" — it's
+preventing double-booking of the same property for overlapping dates while
+serving a search experience (browsing available listings by location, dates,
+price) that needs to be fast across millions of listings.
+
+Preventing double bookings:
+The booking write path needs a strong consistency guarantee: two guests must
+not both successfully book the same listing for overlapping dates. This is
+handled with a transactional check-and-reserve against the availability
+calendar for that listing — the specific listing's availability is the unit
+that needs strict consistency, even though the overall system is large and
+distributed. This is a good illustration of a general system design
+principle: you don't need every part of a large system to be strongly
+consistent, only the specific slice where correctness actually matters
+(here: one listing's calendar), while other parts (search, browsing) can be
+eventually consistent.
+
+Search (a different consistency requirement than booking):
+Search/browse needs to be fast and handle huge read volume, but a search
+result showing a listing that was juuust booked a few seconds ago by someone
+else is a minor, acceptable inconsistency — corrected when the user actually
+tries to book and hits the strongly-consistent availability check.
+This split (fast/loose for search, strict for the actual booking transaction)
+is why the search index can be a denormalized, eventually-consistent copy
+updated asynchronously from the source-of-truth booking/listing data,
+rather than the search path querying the strongly consistent store directly.
+
+Service-Oriented Architecture migration:
+Airbnb's engineering blog has documented moving from a large Ruby on Rails
+monolith to a service-oriented architecture as the company scaled — driven
+by the same forces most large monoliths eventually hit: independent teams
+needing to deploy independently, and different parts of the system
+(search vs booking vs payments) having very different scaling and
+consistency needs that a single monolithic app and database struggled to
+serve well simultaneously.
+
+Experimentation infrastructure:
+Because pricing, search ranking, and UI changes all materially affect
+booking conversion (real revenue), Airbnb built significant internal
+infrastructure for A/B testing at scale — a recurring theme in their
+engineering blog is treating experimentation itself as core infrastructure,
+not an afterthought bolted onto the product.
+
+Real-world takeaway for interviews:
+"Design Airbnb" is a common system design interview question specifically
+because it forces you to identify which part of the system needs strong
+consistency (the booking transaction against one listing's calendar) versus
+which parts can be eventually consistent (search results, listing browsing) —
+correctly drawing that line is the core of the answer, not just listing
+components.

@@ -1,5 +1,7 @@
 INSTAGRAM SYSTEM DESIGN
 
+Sources: Instagram Engineering Blog (instagram-engineering.com), Meta Engineering Blog
+
 Overview:
 Instagram is a photo and video sharing platform with 2 billion monthly active users. Core challenges: (1) store and serve billions of photos and videos globally at low latency, (2) generate a personalized feed for each user, (3) handle stories that expire after 24 hours, (4) support real-time interactions (likes, comments).
 

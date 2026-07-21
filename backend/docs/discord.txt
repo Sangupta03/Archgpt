@@ -1,5 +1,7 @@
 DISCORD SYSTEM DESIGN
 
+Sources: Discord Engineering Blog (discord.com/blog/engineering)
+
 Overview:
 Discord is a real-time communication platform primarily for gaming communities, now broadly used. Core features: text channels, voice calls, video calls, and servers (communities). Key challenges: (1) deliver messages in real-time to potentially millions of server members, (2) maintain low-latency voice/video calls, (3) store trillions of messages efficiently.
 

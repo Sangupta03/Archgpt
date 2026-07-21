@@ -1,5 +1,7 @@
 GOOGLE SEARCH SYSTEM DESIGN
 
+Sources: S. Brin & L. Page, "The Anatomy of a Large-Scale Hypertextual Web Search Engine" (1998), Google Search Central documentation
+
 Overview:
 Google Search indexes 100+ billion web pages and serves 8.5 billion searches per day, returning results in under 100ms. The three main challenges: (1) crawling — discover and download the entire web, (2) indexing — process and store content for fast retrieval, (3) ranking — determine the most relevant results for each query.
 

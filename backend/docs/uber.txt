@@ -1,5 +1,7 @@
 UBER SYSTEM DESIGN
 
+Sources: Uber Engineering Blog (uber.com/blog/engineering)
+
 Overview:
 Uber connects riders needing a ride with nearby drivers in real-time. The core challenges are: (1) real-time geospatial matching — find the closest driver to a rider in milliseconds, (2) surge pricing — compute dynamic prices based on supply/demand in each zone, (3) trip state machine — manage the full lifecycle from request to payment.
 

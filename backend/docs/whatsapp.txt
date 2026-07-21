@@ -1,5 +1,7 @@
 WhatsApp System Design
 
+Sources: WhatsApp Engineering (public talks/posts on Erlang-based scaling), Meta Engineering Blog
+
 Overview:
 WhatsApp handles 100 billion messages per day across 2 billion users.
 Core challenges: real-time message delivery, end-to-end encryption,

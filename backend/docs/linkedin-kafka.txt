@@ -1,0 +1,50 @@
+LinkedIn & the Origin of Kafka (Case Study)
+
+Sources: LinkedIn Engineering Blog, Kreps, Narkhede, Rao — "Kafka: a Distributed Messaging System for Log Processing" (NetDB 2011)
+
+The problem LinkedIn had:
+By the early 2010s, LinkedIn had many separate systems that needed the same
+underlying activity data — the news feed, search indexing, relevance/ML
+pipelines, monitoring, and analytics all needed a feed of user activity
+events (page views, connections made, likes). Each consumer had built its
+own point-to-point pipeline to get this data, resulting in an N×M mess of
+custom, fragile integrations between every producer and every consumer.
+
+Why existing message queues weren't a fit:
+Traditional queues (JMS-style brokers) were built for low-throughput,
+transactional messaging, not the sustained high-throughput firehose of
+activity events LinkedIn needed to move (hundreds of billions of events/day
+at LinkedIn's later scale). They also typically delete a message once
+consumed, so a second, independent consumer couldn't replay the same stream.
+
+Kafka's core design choices (as a direct response to that problem):
+Log-based storage: instead of deleting messages after delivery, Kafka
+retains them for a configured period (or forever) as an append-only log.
+Multiple independent consumer groups can each read the same stream at their
+own pace, tracking their own offset — this single change is what let
+LinkedIn support many different downstream consumers off one shared pipeline
+instead of N separate point-to-point integrations.
+Partitioning: each topic is split into partitions, each handled independently
+and in order, allowing horizontal scaling of both writes and reads by adding
+more partitions and consumers.
+Sequential disk I/O: Kafka relies on sequential reads/writes to disk (fast,
+even on spinning disks) plus OS page cache, rather than random access — this
+is why Kafka achieves very high throughput despite persisting everything.
+Pull-based consumption: consumers pull at their own pace and track their own
+offset, rather than the broker pushing and needing to track per-consumer
+state — simplifies the broker and lets slow consumers fall behind without
+overwhelming themselves, catching up later from their last offset.
+
+Outcome:
+LinkedIn open-sourced Kafka in 2011 and it became an Apache project; it's now
+the de facto standard for high-throughput event streaming across the
+industry (adopted by Netflix, Uber, and most large-scale systems that need
+a durable, replayable, multi-consumer event backbone) — a direct example of
+solving an internal integration problem generally enough that it became
+foundational infrastructure well beyond its original use case.
+
+Relevance to system design interviews:
+"Why Kafka over a traditional queue" is a common follow-up question — the
+answer is precisely this history: replayability (log retention, multiple
+independent consumer groups) and throughput (partitioning + sequential I/O),
+not just "it's a queue but faster."

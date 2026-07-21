@@ -1,0 +1,62 @@
+Web Crawler Design
+
+Sources: S. Brin & L. Page, "The Anatomy of a Large-Scale Hypertextual Web Search Engine" (1998), standard system design interview treatment (Alex Xu, "System Design Interview")
+
+What it does:
+Starts from a set of seed URLs, downloads each page, extracts new links from
+it, and adds those links to a queue to be crawled next — recursively
+discovering and downloading a large portion of the web.
+
+Core components:
+Seed URLs: the starting set of pages to crawl.
+Frontier (URL queue): the set of URLs discovered but not yet fetched —
+this is the main piece of shared state the whole system revolves around.
+Fetcher: downloads the page content for a URL.
+Parser/Extractor: pulls new links out of the downloaded HTML, plus whatever
+content the crawler is actually collecting (text for a search index, prices
+for a shopping comparison site, etc.).
+Duplicate detector: avoids re-crawling and re-storing content already seen.
+Storage: the downloaded content and metadata.
+
+Avoiding duplicate work:
+Two different URLs often point to the same content (mobile vs desktop URL,
+tracking params, http vs https). Hash the normalized content (not just the
+URL) to detect "we've already stored this page" even if the URL differs.
+A Bloom filter is commonly used to cheaply check "have we already queued
+this URL" before adding it to the frontier, without needing to store every
+full URL in memory to check.
+
+Politeness (this is a hard requirement, not an optimization):
+Crawling a site too fast can look like — or actually be — a denial-of-service
+attack, and can get the crawler's IP banned. Rules: respect robots.txt
+(tells the crawler which paths it's not allowed to fetch), and rate-limit
+per domain (e.g. max 1 request/second to a given host), typically using a
+separate queue or delay per domain rather than one global rate limit.
+
+Priority / freshness:
+Not all pages are equal — a news homepage changes hourly, a static about-page
+almost never. Crawlers assign a re-crawl priority per URL based on how often
+it has historically changed and how important it is (e.g. via inbound link
+count, an early precursor to PageRank), rather than crawling everything on
+a fixed schedule.
+
+Scaling the frontier:
+A single machine's queue can't hold "every URL on the web" and a single
+fetcher can't download fast enough. The frontier is partitioned (e.g. by
+domain hash) across many worker machines, each responsible for fetching
+a subset of URLs — this also naturally helps enforce per-domain politeness,
+since all URLs for one domain land on the same worker's queue.
+
+Handling crawler traps and infinite spaces:
+Some sites generate infinite URLs dynamically (e.g. a calendar with a
+"next month" link that goes on forever). Crawlers cap max depth per site
+and max pages per domain to avoid getting stuck indefinitely on a single
+site's infinite link structure.
+
+Real-world example:
+Building a search engine's crawler: seed with a list of popular domains,
+fetcher pool downloads pages respecting robots.txt and per-domain rate
+limits, parser extracts text (for the search index) and links (for the
+frontier), Bloom filter prevents re-queuing already-seen URLs, and
+higher-priority (frequently updated, highly-linked) pages get re-crawled
+more often than a static page that hasn't changed in years.

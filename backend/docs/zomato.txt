@@ -1,5 +1,7 @@
 ZOMATO SYSTEM DESIGN
 
+Sources: Zomato Engineering Blog (blog.zomato.com/engineering)
+
 Overview:
 Zomato is a food discovery and delivery platform operating in 25+ countries. Unlike Swiggy which focuses purely on logistics, Zomato combines restaurant discovery, user reviews, table reservations, and food delivery in one platform. This makes their architecture more complex — they need to handle both transactional speed (delivery) and social/discovery features (reviews, ratings, photos).
 

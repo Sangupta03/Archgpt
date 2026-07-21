@@ -1,5 +1,7 @@
 TWITTER (X) SYSTEM DESIGN
 
+Sources: Twitter/X Engineering Blog (blog.twitter.com/engineering)
+
 Overview:
 Twitter is a social media platform for short-form posts (tweets, 280 chars). The core challenge is the news feed — when a user with 50 million followers tweets, 50 million people should see it in their feed almost instantly. This "fanout" problem is one of the hardest in distributed systems.
 

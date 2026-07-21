@@ -1,0 +1,57 @@
+Pinterest System Design (Case Study)
+
+Sources: Pinterest Engineering Blog (medium.com/pinterest-engineering)
+
+Core challenge:
+Pinterest's home feed and search need to serve a highly visual, read-heavy
+product (billions of "pins," each with images) with personalized ranking,
+at a read:write ratio that's extremely skewed toward reads — most users
+browse far more pins than they create.
+
+Sharded MySQL as the source of truth:
+Pinterest's engineering blog has documented using sharded MySQL for core
+data (pins, boards, users) — sharding by a key like user_id so a given
+user's data mostly lives on one shard, keeping most queries scoped to a
+single shard rather than fanning out across all of them. This is a common
+pattern for reaching MySQL-scale-and-beyond throughput without abandoning
+a relational model the team already knows well.
+
+The feed fan-out problem:
+When a user follows thousands of boards/users, generating their home feed
+by querying all of those sources at read time (fan-out on read) is
+expensive per-request. Alternatively, pre-computing each follower's feed
+at write time (fan-out on write, i.e. when a pin is created, push it into
+every follower's precomputed feed) is fast to read but expensive for
+users with huge numbers of followers (a "celebrity" pinner writing once
+means fanning out to millions of followers' feeds).
+Pinterest (like Twitter, Instagram) uses a hybrid: fan-out on write for
+most users, with a separate fan-out on read path merged in at request time
+for accounts with very large follower counts — avoiding the write
+amplification blowup for the small number of accounts where fan-out on
+write would be disproportionately expensive.
+
+Image storage and serving:
+Billions of images at multiple resolutions (thumbnail, feed-size, full-size)
+are stored in blob storage and served through a CDN — the application
+database stores only metadata and a reference/URL to the image, never the
+image bytes themselves, keeping the relational database small and fast
+while a purpose-built object store and CDN handle the actual (much larger)
+binary content and its geographic distribution to users.
+
+Personalized ranking:
+Unlike a purely chronological feed, Pinterest's home feed is ranked by a
+recommendation model considering a user's past engagement — this ranking
+step is a separate service/pipeline from the raw "fetch candidate pins"
+step, following the general large-scale feed pattern of candidate
+generation (get a broad pool of possibly-relevant pins cheaply) followed
+by ranking (score and reorder a smaller candidate set more expensively) —
+doing expensive ML ranking over the entire pin corpus per request would not
+be feasible, so cheap retrieval narrows the set before expensive ranking
+runs on it.
+
+Real-world takeaway for interviews:
+"Design Pinterest/Instagram feed" questions center on the fan-out on write
+vs read trade-off (and the hybrid approach for high-follower accounts),
+plus the candidate-generation-then-ranking split for personalization —
+both are reusable patterns that show up across most large-scale social feed
+system designs, not Pinterest-specific tricks.

@@ -1,0 +1,58 @@
+Slack System Design (Case Study)
+
+Sources: Slack Engineering Blog (slack.engineering)
+
+Core challenge:
+Real-time message delivery to potentially thousands of connected clients per
+workspace, while keeping full message history durable and searchable, and
+keeping every client's view of a channel consistent as new messages, edits,
+and reactions arrive.
+
+Real-time delivery via WebSockets:
+Each connected client holds a persistent WebSocket connection to a gateway
+server. When a message is sent, it's written to the durable store first,
+then fanned out over the open WebSocket connections of every client
+currently viewing that channel — the WebSocket is for live delivery to
+already-connected clients, not the system of record; a client reconnecting
+after being offline fetches missed history from the durable store via a
+normal API call, not by expecting to replay it from the socket.
+
+The "gateway holds connections, backend holds truth" split:
+Gateway/connection servers are relatively lightweight and mostly hold open
+sockets and route messages; the actual message data, ordering, and history
+lives in the backend datastore. This separation lets Slack scale the number
+of concurrent open connections independently from the storage/query layer —
+a spike in simultaneous online users stresses connection servers, not
+necessarily the database.
+
+Sharding by workspace/channel:
+Slack's engineering blog has discussed sharding message storage by
+team/channel, since most reads and writes for a given message are scoped to
+one channel — this keeps related data (a channel's message history) together
+on the same shard, so a typical "load channel history" query hits one shard
+rather than fanning out across the whole dataset.
+
+Historical MySQL scaling (Vitess):
+Slack has written about outgrowing a single large MySQL setup and adopting
+Vitess (a MySQL sharding middleware, originally built at YouTube) to shard
+their relational data horizontally while keeping the MySQL query interface
+application code already relied on — an example of solving a scaling problem
+by adding a sharding layer in front of an existing database technology,
+rather than fully rewriting onto a different database.
+
+Presence (online/offline/typing indicators):
+Presence state changes extremely frequently (far more often than actual
+messages) and is far less critical to get perfectly right — a "typing..."
+indicator being a second late or occasionally wrong is a minor UX blemish,
+not a correctness bug. This makes presence a good candidate for the most
+relaxed consistency and heaviest batching/throttling in the whole system,
+illustrating that not every real-time-feeling feature needs the same
+delivery guarantees as the actual message content.
+
+Real-world takeaway for interviews:
+"Design Slack/a chat app" questions hinge on separating three different
+problems that are easy to conflate: durable message storage (needs to be
+correct and never lost), real-time fan-out to online clients (needs to be
+fast, some staleness on reconnect is fine since history backfills it), and
+ephemeral presence state (needs to be cheap and fast, correctness is
+optional) — each deserves a different consistency/durability trade-off.

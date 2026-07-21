@@ -1,5 +1,7 @@
 DROPBOX / GOOGLE DRIVE SYSTEM DESIGN
 
+Sources: Dropbox Tech Blog (dropbox.tech)
+
 Overview:
 Dropbox is a cloud file storage and synchronization service. Users can store files in the cloud and access them from multiple devices, with changes synced automatically. Core challenges: (1) efficient sync — only send what changed, not the entire file, (2) handle concurrent edits from multiple devices, (3) store and retrieve petabytes of files reliably.
 

@@ -1,0 +1,53 @@
+Bloom Filters
+
+Sources: Burton H. Bloom, "Space/Time Trade-offs in Hash Coding with Allowable Errors" (1970), Redis documentation (Bloom Filter / probabilistic data structures)
+
+What it is:
+A probabilistic data structure that answers "have I possibly seen this item
+before?" using a fixed, tiny amount of memory — regardless of how many items
+have been added. Trades perfect accuracy for massive space savings.
+
+The guarantee (this is the important part):
+No false negatives: if the filter says "definitely not present," the item is
+genuinely not present.
+Possible false positives: if the filter says "possibly present," it might
+actually not be — the false positive rate is tunable (smaller filter / more
+items = higher false positive rate).
+It never says "definitely present" for something that was never added incorrectly
+in the wrong direction — the asymmetry only goes one way, which is what makes
+it usable: you only need a secondary, slower check for the "possibly present" case.
+
+How it works:
+A bit array of m bits, all initially 0, plus k independent hash functions.
+To add an item: hash it k times, set the k resulting bit positions to 1.
+To check an item: hash it the same k times, if ALL k bit positions are 1,
+report "possibly present"; if ANY bit is 0, report "definitely not present"
+(since adding that item would have set that bit).
+False positives happen because bits get shared/overwritten by other items'
+hashes — you can't tell whether a set bit was set by the item you're checking
+or by pure coincidence from other insertions.
+
+Why not just use a hash set:
+A hash set storing millions of actual keys uses far more memory (must store
+each key or at least its full hash) than a Bloom filter, which only needs
+a handful of bits per item regardless of key size. The trade is: a hash set
+has zero false positives, a Bloom filter accepts a small false-positive rate
+in exchange for a fraction of the memory.
+
+Cannot remove items (in the basic version):
+Because bits are shared across multiple items' hashes, clearing a bit to
+"remove" one item could break the correctness for other items that also
+set that bit. A Counting Bloom Filter (using small counters instead of single
+bits) supports removal at the cost of more memory — used when deletions
+are actually needed.
+
+Real-world example:
+A CDN or database wants to avoid an expensive disk/network lookup for keys
+that definitely don't exist (e.g. checking if a URL is on a known-malicious
+list, or if a cache key might exist before hitting disk).
+Check the Bloom filter first: if "definitely not present," skip the expensive
+lookup entirely. If "possibly present," do the real (slower, authoritative)
+lookup to confirm — the small false-positive rate just means occasionally
+doing an unnecessary real lookup, never missing an item that's actually there.
+This is exactly how Cassandra and HBase use Bloom filters to skip SSTable
+files that don't contain a given key, avoiding unnecessary disk reads.

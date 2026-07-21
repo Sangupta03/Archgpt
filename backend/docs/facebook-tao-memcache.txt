@@ -1,0 +1,48 @@
+Facebook TAO & Memcache at Scale (Case Study)
+
+Sources: Bronson et al., "TAO: Facebook's Distributed Data Store for the Social Graph" (USENIX ATC 2013), Nishtala et al., "Scaling Memcache at Facebook" (NSDI 2013)
+
+The problem:
+Facebook's social graph (users, friendships, likes, comments — modeled as
+nodes and edges) is read far more often than it's written, at massive scale,
+and the underlying data lived in sharded MySQL. Serving graph reads directly
+from MySQL at that read volume was not feasible — the read/write ratio was
+extremely skewed toward reads.
+
+Scaling Memcache at Facebook (the caching layer):
+Facebook ran one of the largest memcached deployments in the world — trillions
+of items across many clusters. Key lessons from that paper:
+Look-aside cache pattern: application code checks memcache first, on a miss
+reads from MySQL and populates the cache — memcache itself has no knowledge
+of the database, it's purely a fast key-value layer in front of it.
+Thundering herd / cache stampede problem: if a popular key expires, many
+requests can miss simultaneously and all hit the database at once for the
+same key. Mitigated with a "lease" mechanism — only one request is allowed
+to go fetch from the database and repopulate the cache; other concurrent
+requests for the same key wait briefly rather than all hitting the DB.
+Invalidation across regions: when data changes, the region owning the
+write broadcasts invalidations to caches in other regions — because
+Facebook serves from multiple geographic regions, simply relying on TTL
+expiry alone would leave far-flung caches stale for too long.
+
+TAO (the graph-aware layer built on top of that caching experience):
+Rather than have every service reimplement "cache the graph efficiently,"
+Facebook built TAO as a dedicated read-through cache purpose-built for the
+social graph's actual access patterns — objects (nodes: a post, a user) and
+associations (edges: "likes," "friends") — instead of a generic key-value
+cache that every team had to hand-tune for graph queries.
+Read-heavy optimization: TAO explicitly favors availability and low latency
+for reads over strict consistency — a "like" count might be very briefly
+stale across regions, an acceptable trade for the massive read volume TAO serves.
+Write-through with async replication: writes go to the region's master
+database, and are asynchronously replicated to other regions' caches —
+again prioritizing not blocking the write path on cross-region consistency.
+
+The general lesson (useful beyond Facebook specifically):
+Both papers describe the same underlying pattern: a very read-heavy workload
+at extreme scale is served by pushing reads into a cache layer tuned for the
+specific access pattern (generic key-value for Memcache, graph-specific for
+TAO), while accepting eventual/relaxed consistency as a deliberate trade-off
+for availability and latency — and building explicit mechanisms (leases,
+cross-region invalidation) to control exactly how stale the cache is allowed
+to get, rather than leaving it unbounded.

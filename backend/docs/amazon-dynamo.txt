@@ -1,0 +1,57 @@
+Amazon Dynamo (Case Study)
+
+Sources: DeCandia et al., "Dynamo: Amazon's Highly Available Key-value Store" (SOSP 2007)
+
+Why it was built:
+Amazon's shopping cart service needed to always accept a write — even during
+a network partition or node failure — because a customer being unable to add
+to their cart is a direct lost sale. Traditional strongly-consistent databases
+prioritize consistency over availability during a partition; Dynamo inverted
+that priority for this specific use case.
+
+Core design goal: always writable.
+Dynamo chose availability and partition tolerance over strict consistency
+(the AP side of CAP) — a write should never be rejected because some
+replicas are temporarily unreachable. This means the system can end up with
+temporarily conflicting versions of the same data, which it must reconcile
+later rather than prevent up front.
+
+Consistent hashing for partitioning:
+Data is partitioned across nodes using consistent hashing (each node owns a
+range on a hash ring). Adding or removing a node only reshuffles the data
+immediately adjacent to it on the ring, not the entire dataset — critical for
+a system meant to scale nodes up/down without a massive rebalancing event.
+
+Sloppy quorum & hinted handoff:
+Normally a write requires acknowledgment from W replicas and a read from R
+replicas (with W + R > N giving strong-ish consistency). But if some of the
+"correct" replica nodes are down, Dynamo still accepts the write on a
+different, temporarily-substituting node ("sloppy quorum") rather than
+rejecting it — the substitute node holds a "hint" to hand the data back to
+the rightful replica once it recovers (hinted handoff). This is the core
+mechanism of the "always writable" guarantee.
+
+Vector clocks for conflict resolution:
+Because writes can be accepted by different replicas independently during a
+partition, the same key can end up with multiple conflicting versions.
+Dynamo tags each version with a vector clock (tracks which node made which
+update, in what order) so it can determine if one version is a strict
+descendant of another (safe to auto-merge) or if they're genuinely
+concurrent conflicting writes (must be reconciled — Dynamo pushes this
+reconciliation to the application, e.g. "merge the two shopping carts,"
+since only the application knows how to correctly merge domain data).
+
+Read-repair & anti-entropy:
+When a read encounters divergent versions across replicas, the coordinator
+can push the resolved/latest version back to the stale replicas
+("read repair") instead of waiting for a separate background process —
+keeps replicas converging toward consistency without blocking writes to do so.
+
+Legacy and influence:
+Dynamo's design (consistent hashing, eventual consistency, vector clocks,
+"AP over CP" for write availability) directly influenced Cassandra,
+Riak, and Amazon's own managed DynamoDB — this paper is one of the most
+cited references in distributed systems design precisely because it made
+an explicit, well-justified trade-off (availability over consistency) that
+became a standard pattern to reference when discussing CAP theorem trade-offs
+in interviews.

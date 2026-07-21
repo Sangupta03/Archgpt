@@ -1,5 +1,7 @@
 CAP THEOREM AND DISTRIBUTED SYSTEMS CONSISTENCY
 
+Sources: Eric Brewer, "CAP Twelve Years Later: How the 'Rules' Have Changed" (IEEE Computer, 2012); Gilbert & Lynch, "Brewer's Conjecture and the Feasibility of Consistent, Available, Partition-Tolerant Web Services" (2002)
+
 Overview:
 The CAP theorem states that a distributed database system can only guarantee two of three properties simultaneously: Consistency, Availability, and Partition Tolerance. Understanding CAP is fundamental to system design — every database and architectural decision involves these trade-offs.
 

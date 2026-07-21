@@ -1,5 +1,7 @@
 DATABASE SHARDING AND PARTITIONING
 
+Sources: MongoDB documentation (Sharding), Vitess documentation (originally built at YouTube)
+
 Overview:
 When a single database server can't handle the load (too many queries, too much data), you scale horizontally by splitting data across multiple servers. This is called sharding (horizontal partitioning). Understanding sharding is critical for system design interviews — almost every large-scale system uses it.
 

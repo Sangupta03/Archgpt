@@ -1,0 +1,61 @@
+Distributed Locks & Leader Election
+
+Sources: Redis documentation (Distributed Locks with Redis / Redlock), Apache ZooKeeper documentation, etcd documentation
+
+What it is:
+A distributed lock lets multiple processes across different machines coordinate
+so only one of them does a particular piece of work at a time — e.g. only one
+instance of a cron job runs, or only one node processes a given task.
+A regular in-process lock (mutex) doesn't work here because the "processes"
+are on different machines with no shared memory.
+
+Why you need one:
+Running the same scheduled job twice (duplicate emails sent, duplicate charges).
+Two nodes both thinking they're the "leader" and both writing conflicting data.
+Preventing two workers from picking up and processing the same queue item.
+
+Redis-based locks (simple case):
+SET a key with a unique value and an expiry (SET lock_key unique_id NX EX 30).
+NX means "only set if not exists" — this is the actual locking mechanism.
+Expiry (EX) prevents a deadlock if the holder crashes before releasing.
+Release by checking the value matches before deleting (via a Lua script, to make
+compare-and-delete atomic) — otherwise you might delete a lock some other
+process acquired after your expiry.
+Limitation: single Redis node is a single point of failure. If it fails over
+to a replica before the write is replicated, two clients could both believe
+they hold the lock.
+
+Redlock (multi-node Redis locking):
+Acquire the lock on a majority of independent Redis nodes (e.g. 3 of 5) within
+a time budget. Considered "acquired" only if majority succeeds before the clock
+runs out. More resilient to a single node failing, though it has been debated
+(Martin Kleppmann's critique) as not being fully safe under clock drift/GC pauses —
+good enough for "efficiency" locks (avoid duplicate work), not for correctness-critical
+locks (avoid data corruption).
+
+ZooKeeper / etcd-based locks (correctness-critical case):
+Both are consensus-based stores (using ZAB / Raft respectively) — a write is only
+acknowledged once a majority of nodes agree, which is much stronger than a single
+Redis node's guarantee.
+Leader election pattern: each candidate creates an ephemeral sequential node;
+the candidate with the lowest sequence number is the leader. If the leader's
+session dies (crash, network partition), its ephemeral node disappears
+automatically and the next-lowest candidate becomes leader.
+Use this when correctness matters more than latency — e.g. only one node should
+ever be allowed to write to a given shard.
+
+Fencing tokens:
+Even with a "correct" lock, a paused process (GC pause, slow disk) can wake up
+after its lock has expired and still think it holds the lock, then write stale
+data. Fix: every time a lock is granted, issue a monotonically increasing
+fencing token. The resource being protected (e.g. storage service) rejects any
+write that comes with an older token than the last one it saw — this is the
+actual fix for "lock expired but process is still running" bugs, the lock
+alone is not sufficient.
+
+Real-world example:
+A distributed cron system runs the same job definition on 5 worker nodes for
+redundancy. Before executing, each worker tries to acquire a Redis lock
+`job:daily-report:2026-07-20`. Only the worker that wins the SET NX runs the
+job; the other 4 see the lock is held and skip — this is how "exactly one
+worker runs this job" is achieved without a central scheduler.

@@ -1,5 +1,7 @@
 MICROSERVICES ARCHITECTURE
 
+Sources: Martin Fowler & James Lewis, "Microservices" (martinfowler.com, 2014)
+
 Overview:
 Microservices is an architectural pattern where an application is built as a collection of small, independent services. Each service runs in its own process, communicates over APIs, and is independently deployable. Contrast with monolith: one codebase, one deployable unit, one database.
 

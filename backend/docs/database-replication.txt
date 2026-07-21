@@ -1,0 +1,55 @@
+Database Replication & Failover
+
+Sources: PostgreSQL documentation (Replication), MySQL documentation (Replication), "Designing Data-Intensive Applications" (Kleppmann) ch.5
+
+What it is:
+Replication keeps copies of the same data on multiple database nodes. Goals:
+survive a node failure without data loss, serve more read traffic than one
+machine can handle, and keep data closer to users in different regions.
+
+Leader-follower (primary-replica) replication:
+One node (leader) accepts all writes. Writes are streamed to one or more
+followers, which apply them and can serve read traffic.
+Most common setup for relational databases (Postgres, MySQL).
+
+Synchronous vs asynchronous replication:
+Synchronous: leader waits for follower to confirm the write before acknowledging
+the client. Zero data loss on failover, but write latency includes network
+round-trip to the follower, and the leader stalls if the follower is slow/down.
+Asynchronous: leader acknowledges the client immediately, follower catches up
+in the background. Fast writes, but a leader crash before replication completes
+means recent writes are lost.
+Semi-synchronous: at least one follower confirms synchronously, rest are async —
+common middle ground (used by MySQL semi-sync replication).
+
+Replication lag:
+The delay between a write on the leader and it appearing on a follower.
+Causes "read-your-own-writes" bugs: user updates their profile, immediately
+reloads the page, request is routed to a lagging follower, sees stale data.
+Fixed by: routing a user's own reads to the leader for a short window after
+they write, or reading from the same replica they just wrote through.
+
+Failover:
+When the leader dies, a follower must be promoted to leader.
+Manual failover: safer, slower — human confirms the old leader is really dead
+before promoting, avoiding split-brain.
+Automatic failover: faster recovery, but risk of split-brain — if the network
+partition means the old leader is alive but unreachable, promoting a new leader
+means two leaders may accept writes simultaneously, causing conflicting data.
+Tools like Patroni (Postgres) or Orchestrator (MySQL) use a consensus store
+(etcd/ZooKeeper) to agree on the new leader safely.
+
+Multi-leader and leaderless replication:
+Multi-leader: multiple nodes accept writes, used across data centers — but
+requires conflict resolution when the same record is written in two places.
+Leaderless (e.g. Cassandra, DynamoDB style): client writes to several replicas
+directly and reads from several, using quorum (W + R > N) to guarantee it
+sees the latest write. No single leader means no failover pause, but
+consistency is weaker and requires read-repair for divergent replicas.
+
+Real-world example:
+A typical production Postgres setup: one primary handles all writes, two
+read replicas serve read-heavy endpoints (e.g. product catalog browsing).
+Patroni monitors primary health via etcd; if the primary fails a health check,
+etcd elects a new leader from the replicas and updates DNS/proxy routing
+automatically — this is what "high availability" means for a database in practice.

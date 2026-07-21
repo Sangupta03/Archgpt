@@ -1,5 +1,7 @@
 APACHE KAFKA — SYSTEM DESIGN DEEP DIVE
 
+Sources: Apache Kafka documentation, Kreps, Narkhede, Rao — "Kafka: a Distributed Messaging System for Log Processing" (NetDB 2011)
+
 Overview:
 Kafka is a distributed event streaming platform. Think of it as a highly durable, infinitely scalable message queue where producers write events and consumers read them. It's used in almost every large-scale system: Uber uses it for location updates, LinkedIn (who built Kafka) uses it for activity feeds, Netflix uses it for analytics pipeline.
 

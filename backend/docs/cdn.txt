@@ -1,5 +1,7 @@
 CDN — CONTENT DELIVERY NETWORK
 
+Sources: Cloudflare Learning Center ("What Is a CDN"), AWS CloudFront documentation
+
 Overview:
 A CDN is a geographically distributed network of servers (edge nodes / Points of Presence / PoPs) that cache and serve content closer to users. Instead of every request going to your origin server (e.g., in US-East), a user in India gets content from a CDN node in Mumbai. Result: faster load times, reduced origin load, better global availability.
 

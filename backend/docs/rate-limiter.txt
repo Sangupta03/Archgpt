@@ -1,5 +1,7 @@
 Rate Limiter System Design
 
+Sources: Stripe API documentation (Rate Limiters), Cloudflare Learning Center (Rate Limiting)
+
 What it is:
 A rate limiter controls how many requests a client can make in a given time window.
 Critical for APIs to prevent abuse, ensure fair usage, and protect backend services.

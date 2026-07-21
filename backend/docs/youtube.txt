@@ -1,5 +1,7 @@
 YouTube System Design
 
+Sources: YouTube Engineering and Developers Blog, Google Cloud Blog
+
 Overview:
 YouTube serves 2 billion users, 500 hours of video uploaded every minute,
 and 1 billion hours watched daily. Core challenge is video storage,

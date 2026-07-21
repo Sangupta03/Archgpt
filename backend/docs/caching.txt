@@ -1,5 +1,7 @@
 Caching Strategies — System Design
 
+Sources: AWS Caching Best Practices documentation, Redis documentation, "Designing Data-Intensive Applications" (Kleppmann)
+
 Why cache:
 Database reads are slow (milliseconds). Cache reads are fast (microseconds).
 80% of traffic typically reads 20% of data (Pareto principle).

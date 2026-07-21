@@ -1,5 +1,7 @@
 Swiggy System Design (Food Delivery at Indian Scale)
 
+Sources: Swiggy Engineering Blog (bytes.swiggy.com)
+
 Overview:
 Swiggy connects 300,000+ restaurants with millions of customers across 500+ Indian cities.
 Core challenges: real-time order tracking, dynamic delivery partner assignment,

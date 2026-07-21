@@ -1,0 +1,56 @@
+Search & Indexing (Inverted Index)
+
+Sources: Elasticsearch documentation ("Inverted index"), Apache Lucene documentation
+
+What it is:
+Searching billions of documents for a keyword by scanning each one would be
+far too slow. Search engines instead build an inverted index ahead of time —
+a data structure that maps each word to the list of documents containing it —
+so a search becomes a fast lookup instead of a full scan.
+
+Forward index vs inverted index:
+Forward index: document → list of words it contains (this is the natural way
+you'd store a document, but useless for "find all docs containing X").
+Inverted index: word → list of documents containing it. Flips the mapping so
+a query for a term is a single lookup, not a scan of every document.
+
+Building the index:
+1. Tokenization: split text into individual terms ("The quick fox" → ["the",
+   "quick", "fox"]).
+2. Normalization: lowercase, remove punctuation, stemming (running → run) so
+   "run", "runs", "running" all match the same index entry.
+3. Stop word removal (optional): common words like "the", "is" are often
+   excluded since they match nearly everything and add little search value.
+4. For each remaining term, append the document ID (and often position within
+   the document, for phrase search) to that term's posting list.
+
+Querying:
+A search for "quick fox" looks up the posting list for "quick" and for "fox",
+then intersects them — documents in both lists contain both words.
+Ranking (which result appears first) typically uses TF-IDF or BM25:
+term frequency (how often the word appears in this doc) weighted against
+inverse document frequency (how rare the word is across all docs) — a rare
+word matching is a stronger signal than a common word matching.
+
+Distributed search (how this scales to billions of documents):
+The full index doesn't fit on one machine. It's split into shards, each
+holding a subset of documents and its own local inverted index.
+A query fans out to every shard in parallel, each returns its top-N matches,
+and a coordinating node merges and re-ranks the combined results —
+this is exactly how Elasticsearch/Solr scale search across a cluster.
+Each shard is also typically replicated for both availability and to
+spread read (query) load across replicas.
+
+Real-time-ish updates:
+New documents don't need a full index rebuild — an update is added as a small
+new index segment; a background merge process periodically combines small
+segments into larger ones for query efficiency. This is why "just indexed"
+documents often show up in search within seconds, not instantly, and why
+search indexes trade a small delay for much better write throughput.
+
+Real-world example:
+An e-commerce product search: catalog of 50M products is sharded across many
+nodes. Searching "wireless headphones" fans out to every shard, each returns
+its best local matches ranked by BM25, coordinator merges and returns the
+final top 20 — the same pattern used by product search on any major
+e-commerce site or by Elasticsearch-backed log search internally at a company.

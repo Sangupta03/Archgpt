@@ -1,0 +1,62 @@
+Database Indexing & Query Optimization
+
+Sources: PostgreSQL documentation (Indexes), "Use The Index, Luke" (use-the-index-luke.com)
+
+What an index is:
+Without an index, finding a row matching a WHERE clause means scanning every
+row in the table (a "sequential scan" / "full table scan") — O(n). An index
+is a separate data structure that lets the database jump straight to matching
+rows, typically O(log n), at the cost of extra storage and slower writes
+(the index must be updated on every insert/update/delete too).
+
+B-Tree index (the default, general-purpose case):
+Balanced tree structure, keeps data sorted, supports equality (=) and range
+(<, >, BETWEEN) queries efficiently, and supports ORDER BY without an extra
+sort step if the sort matches the index order.
+This is what you get by default when you index a column in Postgres/MySQL.
+
+Hash index:
+Only supports exact-match equality lookups (=), not ranges. Faster than
+B-Tree for pure equality lookups in principle, but rarely used in practice
+because B-Tree covers equality well enough and also handles ranges — using
+a hash index means giving up range queries for a marginal equality speedup.
+
+Composite (multi-column) indexes and column order:
+An index on (user_id, created_at) can efficiently serve queries filtering on
+user_id alone, or user_id + created_at together — but NOT an efficient query
+on created_at alone, because the index is sorted by user_id first.
+Rule of thumb: put the column used for equality filters first, range/sort
+columns after — column order in a composite index is not arbitrary.
+
+Covering index:
+An index that includes every column a query needs (in the index itself, via
+an INCLUDE clause or by being a composite index) lets the database answer
+the query directly from the index without touching the actual table rows at
+all ("index-only scan") — this is the fastest possible read path.
+
+When an index is NOT used (common surprise):
+Applying a function to the indexed column in the WHERE clause
+(WHERE LOWER(email) = 'x') prevents the index from being used unless there's
+a matching functional index — the database can't know LOWER(email) matches
+the sorted order of the raw email index.
+Leading wildcard LIKE ('%foo') can't use a standard B-Tree index either,
+since the sort order doesn't help when the match could start anywhere.
+
+The cost of indexes:
+Every index must be updated on every write to the table — a table with 10
+indexes writes is measurably slower than one with 2, because each insert
+touches 10 separate structures. This is why indexes aren't added blindly;
+each one is a real trade-off between read speed and write speed.
+
+EXPLAIN / query plans:
+Before assuming a query is slow because of missing hardware, run EXPLAIN
+ANALYZE — it shows whether the database is doing a sequential scan (bad sign
+for a large table) versus an index scan, and how many rows it actually
+examined versus returned. This is the standard first diagnostic step for
+any "why is this query slow" investigation.
+
+Real-world example:
+A `users` table with 50M rows and a query `WHERE email = ?` used for login.
+Without an index, every login attempt scans 50M rows. Adding a unique index
+on `email` turns this into a near-instant lookup — and as a side effect,
+also enforces the uniqueness constraint at the database level.

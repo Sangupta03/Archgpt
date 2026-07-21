@@ -1,5 +1,7 @@
 URL Shortener System Design
 
+Sources: standard system design interview treatment (Alex Xu, "System Design Interview")
+
 Overview:
 A URL shortener converts long URLs into short aliases (e.g., bit.ly/xyz). 
 It handles billions of redirects daily with sub-millisecond latency.

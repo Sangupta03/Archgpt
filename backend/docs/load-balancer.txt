@@ -1,5 +1,7 @@
 Load Balancer System Design
 
+Sources: AWS Elastic Load Balancing documentation, NGINX documentation (Load Balancing)
+
 What it is:
 A load balancer distributes incoming network traffic across multiple servers.
 Prevents any single server from becoming a bottleneck.

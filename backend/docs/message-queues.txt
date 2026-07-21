@@ -1,0 +1,57 @@
+Message Queues & Pub-Sub
+
+Sources: AWS SQS Developer Guide, RabbitMQ documentation, "Designing Data-Intensive Applications" (Kleppmann) ch.11
+
+What it is:
+A message queue decouples producers (services that create work) from consumers
+(services that process it). Producer pushes a message, queue holds it, consumer
+pulls and processes it whenever ready. Neither side needs the other to be online
+at the same instant.
+
+Why use one:
+Smooths traffic spikes — queue absorbs a burst, consumers drain it at their own pace.
+Decouples services — producer doesn't care if consumer is slow, down, or scaled to zero.
+Enables retries — failed messages can be redelivered instead of lost.
+Enables async workflows — user gets a fast response, heavy work happens in background
+(e.g. "order placed" returns instantly, email/invoice generation happens after).
+
+Point-to-point vs Pub/Sub:
+Point-to-point (queue): one message, one consumer. Used for task distribution —
+e.g. a pool of workers pulling image-resize jobs off a queue.
+Pub/Sub (topic): one message, many subscribers. Used for fan-out — e.g. "order placed"
+event notifies inventory service, billing service, and analytics service simultaneously.
+
+Delivery guarantees:
+At-most-once: message may be lost, never duplicated. Fastest, least safe.
+At-least-once: message guaranteed delivered, but may be duplicated on retry.
+Most systems (SQS, RabbitMQ, Kafka) default to this — consumers must be idempotent.
+Exactly-once: hardest to guarantee in a distributed system; usually achieved by
+combining at-least-once delivery with idempotent consumers (dedupe by message ID),
+not by the queue itself.
+
+Visibility timeout / ack:
+Consumer pulls a message; queue hides it from other consumers for a timeout window.
+Consumer processes it, then explicitly acknowledges (deletes) the message.
+If consumer crashes before ack, message becomes visible again and another consumer
+picks it up — this is why consumers must be idempotent, since a message could be
+processed twice.
+
+Dead-letter queues (DLQ):
+Messages that fail processing repeatedly (e.g. 5 retries) are moved to a separate
+DLQ instead of blocking the main queue forever. Lets you inspect and reprocess
+poison messages without stalling healthy traffic.
+
+Queue vs Kafka:
+Traditional queues (SQS, RabbitMQ) delete a message once consumed — it's gone.
+Kafka is a log: messages are retained for a configured period and consumers track
+their own offset, so multiple consumer groups can replay the same stream independently.
+Use a queue for simple task distribution; use Kafka when you need replay, ordering
+within a partition, or multiple independent consumers of the same event stream.
+
+Real-world example:
+E-commerce checkout: "order placed" event published to a topic.
+→ Inventory service subscribes, decrements stock.
+→ Billing service subscribes, charges card.
+→ Notification service subscribes, sends confirmation email.
+Each subscriber processes independently; if the email service is down, the order
+still completes — the message just waits in that service's queue until it recovers.

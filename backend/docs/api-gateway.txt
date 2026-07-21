@@ -1,0 +1,53 @@
+API Gateway
+
+Sources: AWS API Gateway Developer Guide, Kong Gateway documentation
+
+What it is:
+A single entry point that sits in front of a collection of backend services
+(especially in a microservices architecture) and routes each incoming request
+to the right service. Clients talk to one gateway instead of knowing about
+every individual service's address.
+
+What it handles (so individual services don't have to):
+Routing: maps a path/method to the right backend service (/users → user-service,
+/orders → order-service).
+Authentication: validates JWT/API keys once at the edge, so downstream services
+trust the gateway instead of each re-implementing auth.
+Rate limiting: throttles per-client request rate before it ever reaches backend
+services, protecting them from being overwhelmed.
+Request/response transformation: e.g. converting a legacy SOAP backend response
+to JSON for modern clients, without changing the backend.
+Aggregation: combining calls to multiple services into a single client-facing
+response (sometimes called the "backend for frontend" pattern) — a mobile app
+screen might need data from 3 services, gateway can fan out and merge.
+Observability: single place to log, trace, and monitor all API traffic instead
+of instrumenting every service separately.
+TLS termination: gateway handles HTTPS, internal traffic between gateway and
+services can be plain HTTP within a trusted network.
+
+Gateway vs Load Balancer:
+A load balancer (L4/L7) distributes traffic across replicas of the *same*
+service based on IP/path. An API gateway routes across *different* services
+and adds application-level concerns (auth, rate limiting, transformation)
+on top — they're often used together: gateway routes to a service name,
+load balancer distributes across that service's replicas.
+
+Failure mode to watch for:
+Single point of failure — if the gateway goes down, every service behind it
+is unreachable even if they're all healthy. Mitigated by running multiple
+gateway instances behind their own load balancer, and keeping the gateway
+itself stateless so any instance can handle any request.
+
+Backend for Frontend (BFF) pattern:
+Instead of one generic gateway for all clients, run a dedicated gateway per
+client type (mobile-BFF, web-BFF) — each shaped to that client's specific
+data needs, avoiding a single gateway trying to please every consumer with
+one generic contract.
+
+Real-world example:
+A ride-sharing app's mobile client hits a single gateway endpoint.
+Gateway validates the JWT, then calls trip-service, pricing-service, and
+driver-location-service in parallel, merges their responses into one JSON
+payload the app expects — the mobile client never needs to know these are
+three separate backend services, or that pricing-service might be redeployed
+independently tomorrow.

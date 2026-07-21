@@ -1,0 +1,56 @@
+Event-Driven Architecture & CQRS
+
+Sources: Martin Fowler's blog (martinfowler.com — "CQRS", "Event Sourcing"), Microsoft Azure Architecture Center (CQRS pattern, Event-driven architecture style)
+
+What event-driven architecture is:
+Services communicate by emitting events ("OrderPlaced", "PaymentFailed") to a
+broker (Kafka, SNS, RabbitMQ) rather than calling each other's APIs directly.
+Interested services subscribe to the events they care about and react
+independently. Producer doesn't know or care who's listening.
+
+Why use it over direct service-to-service calls:
+Loose coupling — order-service doesn't need to know inventory-service,
+billing-service, and analytics-service exist; it just publishes "OrderPlaced".
+Adding a new consumer (e.g. a new fraud-detection service) requires zero
+changes to the producer.
+Resilience — if notification-service is down, the event waits in its queue;
+order-service isn't blocked waiting on a slow downstream call.
+
+CQRS (Command Query Responsibility Segregation):
+Split the model used for writes (commands) from the model used for reads
+(queries) — instead of one model trying to serve both efficiently.
+Write side: optimized for validating and persisting a change
+(e.g. normalized relational tables, enforcing invariants).
+Read side: optimized for how the data is actually queried
+(e.g. a denormalized, pre-joined view tailored to a specific screen).
+The two are kept in sync via events — write side publishes an event on every
+change, read side subscribes and updates its own denormalized copy.
+
+Why CQRS pairs with event-driven design:
+The event stream that keeps read models in sync *is* the event-driven
+mechanism — a write triggers an event, one or more read models rebuild
+themselves from it, independently and asynchronously.
+
+Trade-off: eventual consistency.
+Because the read model updates asynchronously after the write event, there's
+a window where a query might return stale data (read model hasn't caught up
+yet). This is fine for a lot of use cases (a "likes count" being one event
+behind is not a problem) but wrong for anything requiring strict consistency
+(reading your own bank balance right after a transfer).
+
+Event Sourcing (often paired with CQRS, but a separate concept):
+Instead of storing current state and overwriting it, store the full sequence
+of events that led to the current state ("AccountOpened", "Deposited $100",
+"Withdrew $30"). Current state is derived by replaying events.
+Benefit: full audit trail for free, and you can rebuild any past state or
+fix a bug in projection logic by replaying history with corrected logic.
+Cost: replaying a long event history to get current state is slow without
+periodic snapshots; more operational complexity than just storing current state.
+
+Real-world example:
+An e-commerce order system publishes "OrderPlaced" on write.
+A dedicated "OrderSummaryView" read model (denormalized, stored in a fast
+key-value store) subscribes and updates itself — this is the exact table the
+"My Orders" page in the app queries, pre-shaped for that screen, entirely
+separate from the normalized orders/line_items tables used to validate and
+place the order in the first place.

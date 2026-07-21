@@ -1,5 +1,7 @@
 NETFLIX SYSTEM DESIGN
 
+Sources: Netflix Tech Blog (netflixtechblog.com)
+
 Overview:
 Netflix is the world's largest video streaming service. The core challenges are: (1) store and serve petabytes of video content globally with low latency, (2) handle 200+ million concurrent streams without buffering, (3) recommend personalized content from 15,000+ titles. Netflix invented or popularized several distributed systems concepts: Chaos Engineering, microservices at scale, and the CDN model (Open Connect).
 

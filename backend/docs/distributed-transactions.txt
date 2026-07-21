@@ -1,0 +1,59 @@
+Distributed Transactions: 2PC & Saga Pattern
+
+Sources: "Designing Data-Intensive Applications" (Kleppmann) ch.9, microservices.io (Chris Richardson) — "Saga pattern"
+
+The problem:
+A single database transaction (BEGIN...COMMIT) guarantees all-or-nothing across
+tables in one database. But a "place order" flow in a microservices system might
+need to update order-service's DB, decrement inventory-service's DB, and charge
+payment-service's DB — three separate databases, no single transaction can span
+all of them.
+
+Two-Phase Commit (2PC):
+A coordinator asks every participant to "prepare" (lock resources, confirm it
+*can* commit, but don't commit yet). If all participants vote yes, coordinator
+tells everyone to commit. If any vote no, coordinator tells everyone to abort.
+Guarantees atomicity across multiple resources — either all commit or all abort.
+
+Why 2PC is avoided in practice at scale:
+Blocking: if the coordinator crashes after participants have "prepared" but
+before sending commit/abort, participants are stuck holding locks indefinitely,
+waiting for a coordinator that may never come back.
+Latency: every participant must stay locked and waiting through two full
+round-trips before any of them can proceed — slow, and doesn't scale well
+across services owned by different teams with independent uptime.
+Tight coupling: all participants must be available simultaneously; one slow
+or down service blocks the whole transaction for everyone.
+
+Saga pattern (the common alternative in microservices):
+Break the transaction into a sequence of local transactions, each with its own
+compensating action to undo it if a later step fails.
+Example: (1) order-service creates order [compensate: cancel order],
+(2) inventory-service reserves stock [compensate: release stock],
+(3) payment-service charges card [compensate: refund].
+If step 3 fails, the saga runs compensations for steps 2 and 1 in reverse —
+no single distributed lock is ever held across all three.
+
+Choreography vs Orchestration (two ways to coordinate a saga):
+Choreography: each service publishes an event when its step completes, next
+service reacts to that event — fully decentralized, no single point of control,
+but harder to see the overall flow/state of "which step is this order on."
+Orchestration: a central saga orchestrator explicitly tells each service what
+to do next and tracks the saga's state — easier to reason about and debug,
+but the orchestrator becomes a piece of infrastructure every saga depends on.
+
+Key trade-off vs 2PC:
+Sagas give up strict atomicity (there IS a window where inventory is reserved
+but payment hasn't happened yet — visible partial state) in exchange for no
+blocking locks held across services and independent service availability.
+This is why sagas are preferred in practice: partial visibility for a short
+window is an acceptable trade for not letting one service's outage freeze
+every other service's transactions.
+
+Real-world example:
+Booking a flight + hotel as one "trip" transaction: reserve flight seat,
+reserve hotel room, charge card. If the hotel is sold out by the time that
+step runs, the saga triggers a compensating action to release the flight
+seat that was already reserved — the user never ends up charged for a trip
+that couldn't be fully booked, without ever holding a lock across the
+airline's and hotel's separate systems.

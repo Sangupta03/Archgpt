@@ -17,7 +17,7 @@
 
 ## What it does
 
-Ask ArchGPT to design YouTube, compare Kafka vs RabbitMQ, quiz you on consistent hashing, or explain CAP theorem — and it gives structured, diagram-backed answers grounded in a curated knowledge base of 22 system design documents.
+Ask ArchGPT to design YouTube, compare Kafka vs RabbitMQ, quiz you on consistent hashing, or explain CAP theorem — and it gives structured, diagram-backed answers grounded in a curated knowledge base of 38 system design documents, each citing the primary sources (official docs, papers, or named engineering blogs) it's based on.
 
 ---
 
@@ -34,7 +34,8 @@ Automatically detects what you're asking and picks the right response format:
 | `"Quiz me on Kafka"` | 5 MCQs with instant feedback and explanations |
 
 ### RAG Pipeline
-- 22 curated `.txt` docs: YouTube, Netflix, Uber, Swiggy, Zomato, Instagram, Discord, Dropbox, Twitter, Kafka, CAP theorem, database sharding, microservices, CDN, SQL vs NoSQL + more
+- 38 curated `.txt` docs: case studies (YouTube, Netflix, Uber, Swiggy, Zomato, Instagram, Discord, Dropbox, Twitter, Airbnb, Slack, Pinterest, Amazon Dynamo, LinkedIn/Kafka, Facebook TAO + more) and core concepts (Kafka, CAP theorem, database sharding/replication, microservices, CDN, SQL vs NoSQL, message queues, distributed locks, CQRS, bloom filters + more)
+- Every doc cites its primary sources (official docs, papers, or the company's own engineering blog) in a `Sources:` line — notes are original synthesis, not scraped content
 - ChromaDB with **gemini-embedding-001** (3072-dim, cosine similarity) — retrieves top-3 relevant chunks per query
 - Source chips shown under each AI response so you know which docs were used
 
@@ -65,6 +66,15 @@ Automatically detects what you're asking and picks the right response format:
 - **Export PDF** — print the chat via browser print dialog
 - **Resizable panels** — drag the divider between chat and diagram
 
+### Backend Engineering
+- **Input validation** — Pydantic `@field_validator` on all 5 request models; invalid inputs return 422 before touching route logic
+- **Rate limiting** — slowapi enforces 20 req/min on `/chat`, 10 req/min on `/quiz` and `/flashcards`, keyed by IP
+- **Connection pooling** — `psycopg2.SimpleConnectionPool` (min=1, max=10) with `try/finally` guards; no per-request TCP handshakes
+- **Structured logging** — Python `logging` module with timestamps, severity levels, and per-request retrieval latency
+- **Real health check** — `/health` pings DB with `SELECT 1`, returns 503 if down so Railway can stop routing traffic
+- **Startup validation** — app refuses to start if any required env var is missing (fail-fast, not fail-on-first-request)
+- **Test suite** — 20 tests across `tests/test_api.py` and `tests/test_models.py`; FastAPI TestClient, all external services mocked
+
 ---
 
 ## Metrics & Performance
@@ -76,7 +86,7 @@ Automatically detects what you're asking and picks the right response format:
 | Vector dimensions | 3,072 (full dimensionality — no reduction at this scale) |
 | Similarity metric | Cosine similarity (magnitude-invariant, better for semantic text) |
 | Retrieval k | Top-3 chunks per query |
-| Knowledge base | 22 curated system design documents |
+| Knowledge base | 38 curated system design documents, each with cited sources |
 | Vector store | ChromaDB (persistent, survives restarts) |
 
 ### System
@@ -87,6 +97,10 @@ Automatically detects what you're asking and picks the right response format:
 | API endpoints | 7 (chat, quiz, flashcards, feedback, sessions CRUD, auth) |
 | Auth | Google OAuth 2.0 + JWT (stateless, no server-side sessions) |
 | DB tables | 3 (users, sessions, feedback) |
+| Rate limiting | 20 req/min (chat), 10 req/min (quiz, flashcards) — per IP |
+| DB connection pool | min=1, max=10 concurrent connections |
+| Test coverage | 20 tests (API endpoints + Pydantic model validation) |
+| Validated request models | 5 (chat, quiz, flashcards, feedback, save-session) |
 
 ### Design Decisions & Tradeoffs
 - **Why top-3 chunks?** More = more noise in the prompt; less = might miss context. 3 chunks ≈ 600–900 tokens of grounding without polluting the LLM context window.
@@ -122,7 +136,7 @@ archgpt/
 │   ├── ingest.py          # One-time script to embed docs into ChromaDB
 │   ├── database.py        # PostgreSQL — users, sessions, feedback
 │   ├── auth.py            # Google OAuth + JWT
-│   └── docs/              # 22 .txt knowledge base files
+│   └── docs/              # 38 .txt knowledge base files, each with cited sources
 └── frontend/
     └── src/
         ├── App.jsx            # Root — layout, state, theme, auth
