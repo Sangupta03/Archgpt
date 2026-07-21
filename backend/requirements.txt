@@ -7,3 +7,4 @@ httpx
 python-jose[cryptography]
 psycopg2-binary
 pydantic
+slowapi

@@ -1,8 +1,11 @@
 # ── Imports ──────────────────────────────────────────────
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from auth import get_google_auth_url, exchange_code_for_user, create_jwt, get_current_user_id
 from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session, save_feedback, check_db_connection
 from pydantic import BaseModel, field_validator
@@ -35,7 +38,10 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
 
 # ── App setup ─────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Create DB tables on startup
 create_tables()
@@ -120,10 +126,11 @@ class ChatRequest(BaseModel):
 
 # ── Single /chat endpoint — RAG + Gemini + streaming ──────
 @app.post("/chat")
-async def chat(request: ChatRequest):
+@limiter.limit("20/minute")
+async def chat(request: Request, body: ChatRequest):
 
     history = []
-    for msg in request.messages[:-1]:
+    for msg in body.messages[:-1]:
         history.append(
             types.Content(
                 role="user" if msg.role == "user" else "model",
@@ -131,24 +138,14 @@ async def chat(request: ChatRequest):
             )
         )
 
-    latest = request.messages[-1].content
-
-    # ── Agent: detect intent, pick the right tool ─────────
-    # Instead of always doing RAG, we detect what the user wants
-    # and build the prompt accordingly
+    latest = body.messages[-1].content
 
     lower = latest.lower()
-
-    # Intent 1: Compare two systems
     is_compare = any(w in lower for w in ["compare", "vs", "versus", "difference between"])
-
-    # Intent 2: Quiz request
-    is_quiz = any(w in lower for w in ["quiz", "test me", "question", "flashcard"])
-
-    # Intent 3: Pure concept question (no diagram needed)
+    is_quiz    = any(w in lower for w in ["quiz", "test me", "question", "flashcard"])
     is_concept = any(w in lower for w in ["what is", "explain", "why does", "how does", "what are"])
 
-    logger.info(f"chat | intent=compare:{is_compare} quiz:{is_quiz} concept:{is_concept} | model={request.model}")
+    logger.info(f"chat | intent=compare:{is_compare} quiz:{is_quiz} concept:{is_concept} | model={body.model}")
     t0 = time.time()
     context, sources = retrieve_with_sources(latest)
     logger.info(f"retrieval done in {time.time()-t0:.2f}s | sources={sources}")
@@ -215,9 +212,8 @@ REFERENCE MATERIAL:
 USER QUESTION:
 {latest}"""
 
-    # use whatever model the user picked (defaults to flash-lite)
     chat_session = gemini.chats.create(
-        model=request.model,
+        model=body.model,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT
         ),
@@ -256,12 +252,12 @@ class QuizRequest(BaseModel):
         return v
 
 @app.post("/quiz")
-async def generate_quiz(request: QuizRequest):
-    # Retrieve relevant docs for this topic
-    context = retrieve(request.topic)
+@limiter.limit("10/minute")
+async def generate_quiz(request: Request, body: QuizRequest):
+    context = retrieve(body.topic)
 
-    prompt = f"""Generate exactly {request.num_questions} multiple choice questions
-to test understanding of {request.topic} system design.
+    prompt = f"""Generate exactly {body.num_questions} multiple choice questions
+to test understanding of {body.topic} system design.
 
 Use this reference material:
 {context}
@@ -288,10 +284,10 @@ Return ONLY valid JSON in this exact format, nothing else:
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
         quiz_data = json.loads(text)
-        logger.info(f"quiz generated | topic={request.topic} | questions={len(quiz_data.get('questions', []))}")
+        logger.info(f"quiz generated | topic={body.topic} | questions={len(quiz_data.get('questions', []))}")
         return quiz_data
     except Exception:
-        logger.error(f"quiz parse failed | topic={request.topic}")
+        logger.error(f"quiz parse failed | topic={body.topic}")
         return {"error": "Failed to parse quiz response"}
 
 
@@ -315,10 +311,11 @@ class FlashcardRequest(BaseModel):
         return v
 
 @app.post("/flashcards")
-async def generate_flashcards(request: FlashcardRequest):
-    context = retrieve(request.topic)
+@limiter.limit("10/minute")
+async def generate_flashcards(request: Request, body: FlashcardRequest):
+    context = retrieve(body.topic)
 
-    prompt = f"""Generate exactly {request.num_cards} flashcards to help a student learn key concepts about {request.topic} system design.
+    prompt = f"""Generate exactly {body.num_cards} flashcards to help a student learn key concepts about {body.topic} system design.
 
 Use this reference material:
 {context}
@@ -349,10 +346,10 @@ Categories: concept, trade-off, example, why"""
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
         data = json.loads(text)
-        logger.info(f"flashcards generated | topic={request.topic} | cards={len(data.get('cards', []))}")
+        logger.info(f"flashcards generated | topic={body.topic} | cards={len(data.get('cards', []))}")
         return data
     except Exception:
-        logger.error(f"flashcard parse failed | topic={request.topic}")
+        logger.error(f"flashcard parse failed | topic={body.topic}")
         return {"error": "Failed to parse flashcards response"}
 
 
