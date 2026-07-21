@@ -1,5 +1,5 @@
 # retriever.py
-import chromadb
+from chromadb import PersistentClient
 from google import genai
 from google.genai import types
 import os
@@ -9,7 +9,7 @@ load_dotenv()
 gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Load ChromaDB
-client = chromadb.PersistentClient(path="./chroma_db")
+client = PersistentClient(path="./chroma_db")
 collection = client.get_or_create_collection(
     name="system_design_docs",
     metadata={"hnsw:space": "cosine"}

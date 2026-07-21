@@ -107,6 +107,9 @@ Automatically detects what you're asking and picks the right response format:
 - **Why cosine over Euclidean?** Text embedding magnitude doesn't carry meaning — a short sentence and a long paragraph on the same topic should score similarly. Cosine measures angle, not magnitude.
 - **Why SSE over WebSockets?** Streaming is unidirectional (server → client only). SSE is simpler, works natively with FastAPI `StreamingResponse`, and eliminates WebSocket connection management overhead.
 - **Source label stripping:** Originally included `[Source: YouTube]` prefixes in retrieved chunks — the model started mimicking them inline everywhere. Stripped labels from context, tracked them separately, sent as a final SSE event rendered as UI chips instead.
+- **Why connection pooling?** Opening a fresh TCP + TLS connection to PostgreSQL on every request adds ~50–100ms latency. A pool of 10 keeps connections alive and reuses them; `try/finally` ensures they're always returned, preventing pool exhaustion.
+- **Why Pydantic validators over inline checks?** Validation runs before route logic and returns a typed 422 — you can't forget to add the check, and the error response format is consistent across all endpoints.
+- **Why rate limiting at the app layer?** Railway's load balancer doesn't rate-limit. Without slowapi, a single client can spam `/chat` and exhaust Gemini API quota. Per-IP limits protect the quota without touching infra.
 
 ---
 
@@ -122,6 +125,8 @@ Automatically detects what you're asking and picks the right response format:
 | Auth | Google OAuth 2.0 + JWT |
 | Database | PostgreSQL via Neon (users, sessions, feedback) |
 | Diagrams | Mermaid.js (auto-generated, SVG export) |
+| Rate limiting | slowapi (per-IP, per-endpoint limits) |
+| Testing | pytest + pytest-asyncio (FastAPI TestClient) |
 | Deploy | Railway (backend) + Vercel (frontend) |
 
 ---
@@ -134,9 +139,13 @@ archgpt/
 │   ├── main.py            # FastAPI app — all routes + RAG + streaming
 │   ├── retriever.py       # ChromaDB query + Gemini embeddings
 │   ├── ingest.py          # One-time script to embed docs into ChromaDB
-│   ├── database.py        # PostgreSQL — users, sessions, feedback
+│   ├── database.py        # PostgreSQL — connection pool, users, sessions, feedback
 │   ├── auth.py            # Google OAuth + JWT
-│   └── docs/              # 38 .txt knowledge base files, each with cited sources
+│   ├── docs/              # 38 .txt knowledge base files, each with cited sources
+│   ├── tests/
+│   │   ├── test_api.py    # 15 API endpoint tests (TestClient, mocked services)
+│   │   └── test_models.py # 5 Pydantic validator tests (no server)
+│   └── pytest.ini         # testpaths = tests
 └── frontend/
     └── src/
         ├── App.jsx            # Root — layout, state, theme, auth
