@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from auth import get_google_auth_url, exchange_code_for_user, create_jwt, get_current_user_id
 from database import create_tables, get_user_by_google_id, create_user, get_user_by_id, save_session, get_user_sessions, get_session, delete_session, save_feedback
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -80,13 +80,29 @@ Rules — follow ALL of them, no exceptions:
 Use Indian startup examples when relevant."""
 
 # ── Request models ────────────────────────────────────────
+ALLOWED_MODELS = {"gemini-2.5-flash-lite", "gemini-2.5-flash"}
+
 class Message(BaseModel):
     role: str
     content: str
 
 class ChatRequest(BaseModel):
     messages: list[Message]
-    model: str = "gemini-2.5-flash-lite"  # user can pick flash or pro
+    model: str = "gemini-2.5-flash-lite"
+
+    @field_validator("messages")
+    @classmethod
+    def messages_not_empty(cls, v):
+        if not v:
+            raise ValueError("messages list cannot be empty")
+        return v
+
+    @field_validator("model")
+    @classmethod
+    def model_must_be_allowed(cls, v):
+        if v not in ALLOWED_MODELS:
+            raise ValueError(f"model must be one of {ALLOWED_MODELS}")
+        return v
 
 # ── Single /chat endpoint — RAG + Gemini + streaming ──────
 @app.post("/chat")
@@ -206,8 +222,22 @@ USER QUESTION:
 
 # ── Quiz endpoint — generates MCQs from a system topic ───
 class QuizRequest(BaseModel):
-    topic: str        # e.g. "YouTube", "URL shortener"
+    topic: str
     num_questions: int = 5
+
+    @field_validator("topic")
+    @classmethod
+    def topic_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError("topic cannot be empty")
+        return v.strip()
+
+    @field_validator("num_questions")
+    @classmethod
+    def questions_in_range(cls, v):
+        if not (1 <= v <= 10):
+            raise ValueError("num_questions must be between 1 and 10")
+        return v
 
 @app.post("/quiz")
 async def generate_quiz(request: QuizRequest):
@@ -251,6 +281,20 @@ Return ONLY valid JSON in this exact format, nothing else:
 class FlashcardRequest(BaseModel):
     topic: str
     num_cards: int = 8
+
+    @field_validator("topic")
+    @classmethod
+    def topic_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError("topic cannot be empty")
+        return v.strip()
+
+    @field_validator("num_cards")
+    @classmethod
+    def cards_in_range(cls, v):
+        if not (1 <= v <= 20):
+            raise ValueError("num_cards must be between 1 and 20")
+        return v
 
 @app.post("/flashcards")
 async def generate_flashcards(request: FlashcardRequest):
