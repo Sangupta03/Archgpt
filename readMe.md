@@ -36,8 +36,14 @@ Automatically detects what you're asking and picks the right response format:
 ### RAG Pipeline
 - 38 curated `.txt` docs: case studies (YouTube, Netflix, Uber, Swiggy, Zomato, Instagram, Discord, Dropbox, Twitter, Airbnb, Slack, Pinterest, Amazon Dynamo, LinkedIn/Kafka, Facebook TAO + more) and core concepts (Kafka, CAP theorem, database sharding/replication, microservices, CDN, SQL vs NoSQL, message queues, distributed locks, CQRS, bloom filters + more)
 - Every doc cites its primary sources (official docs, papers, or the company's own engineering blog) in a `Sources:` line — notes are original synthesis, not scraped content
-- ChromaDB with **gemini-embedding-001** (3072-dim, cosine similarity) — retrieves top-3 relevant chunks per query
+- ChromaDB with **gemini-embedding-001** (3072-dim, cosine similarity) — top-20 candidates per query via ANN search
+- **Two-stage retrieve-then-rerank**: a fine-tuned cross-encoder (`sentence-transformers`, based on `ms-marco-MiniLM-L-6-v2`) rescoring those 20 candidates down to the top-3 that actually go to the LLM
 - Source chips shown under each AI response so you know which docs were used
+
+### Reranker Fine-Tuning
+- Labels generated via weak supervision — Gemini writes questions each chunk would answer, then cosine search mines hard negatives (topically close but wrong) so the model learns real relevance, not just shared vocabulary
+- Fine-tuned on top of the pretrained cross-encoder (transfer learning), evaluated with Precision@3, MRR, and NDCG@3 against a held-out test split
+- **GitHub Actions CI/CD** (`.github/workflows/reranker-ci.yml`) retrains and re-evaluates the reranker whenever `backend/docs/`, `backend/ml/`, or `backend/retriever.py` change, and gates the update — a retrain that regresses Precision@3 by more than 0.03 is rejected automatically
 
 ### Live Architecture Diagrams
 - Mermaid.js diagram auto-generated for every system design
@@ -85,9 +91,19 @@ Automatically detects what you're asking and picks the right response format:
 | Embedding model | gemini-embedding-001 |
 | Vector dimensions | 3,072 (full dimensionality — no reduction at this scale) |
 | Similarity metric | Cosine similarity (magnitude-invariant, better for semantic text) |
-| Retrieval k | Top-3 chunks per query |
+| Candidate pool | Top-20 via ANN search (stage 1) |
+| Retrieval k | Top-3 chunks per query, after reranking (stage 2) |
 | Knowledge base | 38 curated system design documents, each with cited sources |
 | Vector store | ChromaDB (persistent, survives restarts) |
+
+### Reranker (fine-tuned cross-encoder, 26 held-out test queries)
+| Mode | Precision@3 | MRR | NDCG@3 |
+|---|---|---|---|
+| Baseline (cosine only) | 0.333 | 0.846 | 0.886 |
+| Pretrained cross-encoder | 0.321 | 0.881 | 0.895 |
+| **Fine-tuned cross-encoder** | **0.333** | **0.904** | **0.928** |
+
+Fine-tuning lifted MRR ~7% and NDCG@3 ~5% over the cosine-only baseline — the correct source lands at rank 1 more consistently, not just somewhere in the top 3.
 
 ### System
 | Metric | Value |
@@ -103,6 +119,8 @@ Automatically detects what you're asking and picks the right response format:
 | Validated request models | 5 (chat, quiz, flashcards, feedback, save-session) |
 
 ### Design Decisions & Tradeoffs
+- **Why rerank at all?** Cosine similarity compares query and chunk independently, so a chunk can score high just from shared vocabulary without actually answering the question. A cross-encoder reads the query and chunk together and catches that — but it's too slow to run against the whole knowledge base, so it only reranks the 20 candidates cosine search already shortlisted.
+- **Why fine-tune instead of using the pretrained cross-encoder as-is?** The pretrained model is a strong generalist (trained on MS MARCO search queries) but has never seen system-design phrasing. Fine-tuning on this project's own docs adapted it to this specific domain, moving MRR from 0.881 (pretrained) to 0.904 (fine-tuned).
 - **Why top-3 chunks?** More = more noise in the prompt; less = might miss context. 3 chunks ≈ 600–900 tokens of grounding without polluting the LLM context window.
 - **Why cosine over Euclidean?** Text embedding magnitude doesn't carry meaning — a short sentence and a long paragraph on the same topic should score similarly. Cosine measures angle, not magnitude.
 - **Why SSE over WebSockets?** Streaming is unidirectional (server → client only). SSE is simpler, works natively with FastAPI `StreamingResponse`, and eliminates WebSocket connection management overhead.
@@ -122,11 +140,13 @@ Automatically detects what you're asking and picks the right response format:
 | AI | Google Gemini 2.5 Flash (chat, quiz, flashcards) |
 | Embeddings | gemini-embedding-001 (3072-dim vectors) |
 | Vector DB | ChromaDB (cosine similarity, persistent) |
+| Reranker | sentence-transformers CrossEncoder (ms-marco-MiniLM-L-6-v2, fine-tuned) |
 | Auth | Google OAuth 2.0 + JWT |
 | Database | PostgreSQL via Neon (users, sessions, feedback) |
 | Diagrams | Mermaid.js (auto-generated, SVG export) |
 | Rate limiting | slowapi (per-IP, per-endpoint limits) |
 | Testing | pytest + pytest-asyncio (FastAPI TestClient) |
+| CI/CD | GitHub Actions (automated reranker retraining + regression gate) |
 | Deploy | Railway (backend) + Vercel (frontend) |
 
 ---
@@ -135,13 +155,22 @@ Automatically detects what you're asking and picks the right response format:
 
 ```
 archgpt/
+├── .github/workflows/
+│   └── reranker-ci.yml    # retrains + evals + gates the reranker on doc/code changes
 ├── backend/
 │   ├── main.py            # FastAPI app — all routes + RAG + streaming
-│   ├── retriever.py       # ChromaDB query + Gemini embeddings
+│   ├── retriever.py       # ChromaDB query + Gemini embeddings + rerank
 │   ├── ingest.py          # One-time script to embed docs into ChromaDB
 │   ├── database.py        # PostgreSQL — connection pool, users, sessions, feedback
 │   ├── auth.py            # Google OAuth + JWT
 │   ├── docs/              # 38 .txt knowledge base files, each with cited sources
+│   ├── ml/
+│   │   ├── reranker.py         # loads the cross-encoder used at query time
+│   │   ├── generate_labels.py  # weak-supervision label generation
+│   │   ├── train_reranker.py   # fine-tunes the cross-encoder
+│   │   ├── eval_reranker.py    # Precision@3 / MRR / NDCG@3
+│   │   ├── gate_check.py       # blocks a regressing retrain
+│   │   └── metrics.json        # committed eval results
 │   ├── tests/
 │   │   ├── test_api.py    # 15 API endpoint tests (TestClient, mocked services)
 │   │   └── test_models.py # 5 Pydantic validator tests (no server)

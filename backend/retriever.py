@@ -4,6 +4,9 @@ from google import genai
 from google.genai import types
 import os
 from dotenv import load_dotenv
+from ml.reranker import rerank
+
+CANDIDATE_K = 20  # stage 1: cheap, wide cosine net before the cross-encoder narrows it down
 
 load_dotenv()
 gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -35,23 +38,26 @@ def retrieve_with_sources(query, top_k=3):
     query_embedding = embed_query(query)
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=min(top_k, collection.count()),
+        n_results=min(CANDIDATE_K, collection.count()),
         include=["documents", "metadatas"]
     )
 
     if not results["documents"][0]:
         return "", []
 
+    candidates = [
+        {"text": doc, "source": meta["source"]}
+        for doc, meta in zip(results["documents"][0], results["metadatas"][0])
+    ]
+    top_candidates = rerank(query, candidates, top_k=top_k)
+
     context_parts = []
     seen_sources = []
-    for doc, meta in zip(
-        results["documents"][0],
-        results["metadatas"][0]
-    ):
-        name = meta["source"].replace(".txt", "").replace("-", " ").title()
-        # don't add source label to the chunk — AI mimics it and adds "[Source: X]" everywhere
+    for c in top_candidates:
+        name = c["source"].replace(".txt", "").replace("-", " ").title()
+        # don't add source label to the chunk, AI mimics it and adds "[Source: X]" everywhere
         # we track the name separately and show it as UI chips instead
-        context_parts.append(doc)
+        context_parts.append(c["text"])
         if name not in seen_sources:
             seen_sources.append(name)
 

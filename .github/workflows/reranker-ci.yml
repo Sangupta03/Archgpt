@@ -1,0 +1,84 @@
+name: Reranker CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/docs/**"
+      - "backend/ml/**"
+      - "backend/retriever.py"
+  workflow_dispatch:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            docs:
+              - 'backend/docs/**'
+
+  retrain-and-gate:
+    needs: changes
+    runs-on: ubuntu-latest
+    # the commit this job pushes back also touches backend/ml/**, which would
+    # otherwise retrigger this same workflow forever
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      # skip regeneration when only training/eval code changed -- reuses the
+      # already-committed labels and avoids burning the Gemini free-tier quota
+      - name: Regenerate labels from docs
+        if: needs.changes.outputs.docs == 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python -m ml.generate_labels
+
+      - name: Evaluate cosine-only baseline
+        run: python -m ml.eval_reranker --mode baseline > baseline.json
+
+      - name: Evaluate pretrained cross-encoder
+        run: python -m ml.eval_reranker --mode pretrained > pretrained.json
+
+      - name: Fine-tune reranker
+        run: python -m ml.train_reranker
+
+      - name: Evaluate fine-tuned reranker
+        run: python -m ml.eval_reranker --mode finetuned > finetuned.json
+
+      - name: Gate on regression vs currently deployed model
+        run: python -m ml.gate_check --new finetuned.json
+
+      - name: Commit model + metrics if gate passed
+        run: |
+          python - <<'EOF'
+          import json
+          metrics = {
+              "baseline": json.load(open("baseline.json")),
+              "pretrained": json.load(open("pretrained.json")),
+              "finetuned": json.load(open("finetuned.json")),
+          }
+          json.dump(metrics, open("ml/metrics.json", "w"), indent=2)
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ml/metrics.json ml/models ml/data
+          git diff --cached --quiet || git commit -m "chore: retrain reranker [skip ci]"
+          git push
