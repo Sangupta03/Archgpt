@@ -1,0 +1,7 @@
+# Extends requirements.txt with deps only needed by the reranker
+# retraining pipeline (ml/train_reranker.py, ml/generate_labels.py).
+# Not installed in production — sentence-transformers inference
+# (retriever.py / ml/reranker.py) doesn't need these.
+-r requirements.txt
+datasets
+accelerate>=1.1.0

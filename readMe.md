@@ -77,7 +77,7 @@ Automatically detects what you're asking and picks the right response format:
 - **Rate limiting** — slowapi enforces 20 req/min on `/chat`, 10 req/min on `/quiz` and `/flashcards`, keyed by IP
 - **Connection pooling** — `psycopg2.SimpleConnectionPool` (min=1, max=10) with `try/finally` guards; no per-request TCP handshakes
 - **Structured logging** — Python `logging` module with timestamps, severity levels, and per-request retrieval latency
-- **Real health check** — `/health` pings DB with `SELECT 1`, returns 503 if down so Railway can stop routing traffic
+- **Real health check** — `/health` pings DB with `SELECT 1`, returns 503 if down so the platform's load balancer can stop routing traffic
 - **Startup validation** — app refuses to start if any required env var is missing (fail-fast, not fail-on-first-request)
 - **Test suite** — 20 tests across `tests/test_api.py` and `tests/test_models.py`; FastAPI TestClient, all external services mocked
 
@@ -127,7 +127,7 @@ Fine-tuning lifted MRR ~7% and NDCG@3 ~5% over the cosine-only baseline — the 
 - **Source label stripping:** Originally included `[Source: YouTube]` prefixes in retrieved chunks — the model started mimicking them inline everywhere. Stripped labels from context, tracked them separately, sent as a final SSE event rendered as UI chips instead.
 - **Why connection pooling?** Opening a fresh TCP + TLS connection to PostgreSQL on every request adds ~50–100ms latency. A pool of 10 keeps connections alive and reuses them; `try/finally` ensures they're always returned, preventing pool exhaustion.
 - **Why Pydantic validators over inline checks?** Validation runs before route logic and returns a typed 422 — you can't forget to add the check, and the error response format is consistent across all endpoints.
-- **Why rate limiting at the app layer?** Railway's load balancer doesn't rate-limit. Without slowapi, a single client can spam `/chat` and exhaust Gemini API quota. Per-IP limits protect the quota without touching infra.
+- **Why rate limiting at the app layer?** The hosting platform's load balancer doesn't rate-limit. Without slowapi, a single client can spam `/chat` and exhaust Gemini API quota. Per-IP limits protect the quota without touching infra.
 
 ---
 
@@ -147,7 +147,7 @@ Fine-tuning lifted MRR ~7% and NDCG@3 ~5% over the cosine-only baseline — the 
 | Rate limiting | slowapi (per-IP, per-endpoint limits) |
 | Testing | pytest + pytest-asyncio (FastAPI TestClient) |
 | CI/CD | GitHub Actions (automated reranker retraining + regression gate) |
-| Deploy | Railway (backend) + Vercel (frontend) |
+| Deploy | Render (backend) + Vercel (frontend) |
 
 ---
 

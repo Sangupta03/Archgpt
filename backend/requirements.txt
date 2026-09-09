@@ -11,5 +11,3 @@ slowapi
 pytest
 pytest-asyncio
 sentence-transformers
-datasets
-accelerate>=1.1.0

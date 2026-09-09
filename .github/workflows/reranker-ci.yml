@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-ci.txt
 
       # skip regeneration when only training/eval code changed -- reuses the
       # already-committed labels and avoids burning the Gemini free-tier quota
