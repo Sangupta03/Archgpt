@@ -13,7 +13,7 @@ os.environ.setdefault("GOOGLE_CLIENT_ID", "test")
 os.environ.setdefault("GOOGLE_CLIENT_SECRET", "test")
 
 from unittest.mock import patch, MagicMock
-with patch("database._pool"), patch("database.create_tables"), \
+with patch("psycopg2.pool.SimpleConnectionPool"), patch("database.create_tables"), \
      patch("retriever.collection"), patch("retriever.gemini"), patch("main.gemini"):
     from main import ChatRequest, QuizRequest, FlashcardRequest, FeedbackRequest, Message
 

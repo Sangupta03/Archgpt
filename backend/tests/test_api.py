@@ -22,7 +22,7 @@ def mock_env(monkeypatch):
 
 @pytest.fixture
 def client():
-    with patch("database._pool") as mock_pool, \
+    with patch("psycopg2.pool.SimpleConnectionPool"), \
          patch("database.create_tables"), \
          patch("retriever.collection") as mock_col, \
          patch("retriever.gemini") as mock_gem_retriever, \
