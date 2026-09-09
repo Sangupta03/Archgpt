@@ -2,21 +2,21 @@
   "baseline": {
     "mode": "baseline",
     "n_queries": 26,
-    "precision_at_3": 0.3333333333333333,
+    "precision_at_3": 0.33333333333333326,
     "mrr": 0.8461538461538461,
     "ndcg_at_3": 0.8855276543956089
   },
   "pretrained": {
     "mode": "pretrained",
     "n_queries": 26,
-    "precision_at_3": 0.3205128205128205,
-    "mrr": 0.8814102564102565,
+    "precision_at_3": 0.3205128205128204,
+    "mrr": 0.8814102564102563,
     "ndcg_at_3": 0.8946869041208814
   },
   "finetuned": {
     "mode": "finetuned",
     "n_queries": 26,
-    "precision_at_3": 0.3333333333333333,
+    "precision_at_3": 0.33333333333333326,
     "mrr": 0.9038461538461539,
     "ndcg_at_3": 0.9281126828296714
   }
