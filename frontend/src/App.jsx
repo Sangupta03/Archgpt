@@ -6,6 +6,7 @@ import Sidebar from "./Sidebar"
 import AuthSuccess from "./AuthSuccess"
 import QuizModal from "./QuizModal"
 import FlashcardModal from "./FlashcardModal"
+import ColdStartNotice from "./ColdStartNotice"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
@@ -363,6 +364,8 @@ export default function App() {
         {/* Diagram panel — gets theme so mermaid picks the right color scheme */}
         <DiagramPanel diagrams={diagrams} systemName={systemName} theme={theme} />
       </div>
+
+      <ColdStartNotice />
 
       {/* Modals — rendered on top of everything */}
       {showQuiz && <QuizModal onClose={() => setShowQuiz(false)} />}
