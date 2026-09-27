@@ -2,6 +2,27 @@ import { useState, useEffect, useRef } from "react"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
+// Free-tier backends spin down when idle and take 30-60s to wake on the
+// next request, often returning a transient 502/503 while they boot.
+// Retry through that window instead of failing on the first attempt.
+const WAKE_RETRY_DELAYS_MS = [6000, 12000, 18000]
+
+const TRANSIENT_STATUS = new Set([502, 503, 504])
+
+async function fetchChatWithRetry(url, options, onRetry) {
+  for (let attempt = 0; ; attempt++) {
+    const isLastAttempt = attempt === WAKE_RETRY_DELAYS_MS.length
+    try {
+      const res = await fetch(url, options)
+      if (res.ok || isLastAttempt || !TRANSIENT_STATUS.has(res.status)) return res
+    } catch (err) {
+      if (isLastAttempt) throw err
+    }
+    onRetry?.(attempt)
+    await new Promise(r => setTimeout(r, WAKE_RETRY_DELAYS_MS[attempt]))
+  }
+}
+
 // ── Markdown / response formatter ──────────────────────────
 function formatContent(content) {
   const parts = content.split(/(```mermaid[\s\S]*?```)/g)
@@ -317,6 +338,7 @@ function MessageBubble({ role, content, sources, messageIndex }) {
 export default function ChatPanel({ messages, onNewMessage, token, model, onModelChange }) {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
+  const [statusText, setStatusText] = useState("")
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -332,11 +354,18 @@ export default function ChatPanel({ messages, onNewMessage, token, model, onMode
 
     try {
       const allMessages = [...messages, userMsg]
-      const res = await fetch(`${API}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: allMessages, model }),
-      })
+      const res = await fetchChatWithRetry(
+        `${API}/chat`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: allMessages, model }),
+        },
+        () => setStatusText("Waking up the server — this can take up to a minute…")
+      )
+      setStatusText("")
+
+      if (!res.ok) throw new Error(`chat request failed: ${res.status}`)
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -369,6 +398,7 @@ export default function ChatPanel({ messages, onNewMessage, token, model, onMode
     } catch {
       onNewMessage(null, { role: "assistant", content: "Error connecting to backend." })
     } finally {
+      setStatusText("")
       setLoading(false)
     }
   }
@@ -499,9 +529,15 @@ export default function ChatPanel({ messages, onNewMessage, token, model, onMode
               gap: "5px",
               alignItems: "center"
             }}>
-              <span className="typing-dot" />
-              <span className="typing-dot" />
-              <span className="typing-dot" />
+              {statusText ? (
+                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{statusText}</span>
+              ) : (
+                <>
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                </>
+              )}
             </div>
           </div>
         )}

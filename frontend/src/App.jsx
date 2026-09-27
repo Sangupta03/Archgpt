@@ -70,6 +70,12 @@ export default function App() {
     }
   }, [token])
 
+  // Fire-and-forget: wakes a sleeping free-tier backend as early as possible,
+  // so it's often already warm by the time the user finishes typing.
+  useEffect(() => {
+    fetch(`${API}/health`).catch(() => {})
+  }, [])
+
   async function fetchUser(t) {
     try {
       const res = await fetch(`${API}/auth/me`, { headers: { Authorization: `Bearer ${t}` } })
