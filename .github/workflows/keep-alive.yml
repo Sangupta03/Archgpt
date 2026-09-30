@@ -10,4 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping /health
-        run: curl -sf --max-time 30 https://archgpt-backend.onrender.com/health
+        # a cold start on Render's free tier has been measured taking ~60s;
+        # 30s was cutting the request off before the backend finished
+        # booting, marking every cold ping as a false failure
+        run: curl -sf --max-time 90 https://archgpt-backend.onrender.com/health
